@@ -26,7 +26,7 @@ jobs:
 
     - name: Test
       run: |
-        dotnet test test/tiny-brain-test.csproj /p:CollectCoverage=true /p:CoverletOutput=TestResults/ /p:CoverletOutputFormat=lcov
+        dotnet test code/test/tiny-brain-test.csproj /p:CollectCoverage=true /p:CoverletOutput=TestResults/ /p:CoverletOutputFormat=lcov
 
     # - name: Publish results
     #   uses: coverallsapp/github-action@master   
