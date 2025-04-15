@@ -1,0 +1,8 @@
+.idea/
+.vscode/
+
+tiny-brain.sln.DotSettings.user
+
+obj/
+bin/
+

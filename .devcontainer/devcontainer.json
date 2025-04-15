@@ -1,0 +1,13 @@
+{
+    "name": "NET 8 DevContainer",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "settings": {
+        "terminal.integrated.shell.linux": "/bin/bash"
+    },
+    "extensions": [
+        "ms-dotnettools.csharp",
+        "ms-vscode-remote.remote-containers"
+    ]
+}
