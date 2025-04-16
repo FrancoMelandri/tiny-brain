@@ -4,30 +4,37 @@ VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "code", "code", "{314C6247-30EA-3492-19B6-DF847E3B326F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "tiny-brain", "code\src\tiny-brain.csproj", "{71ED6FFF-AFD9-C033-F93B-B2229AA9472D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "tiny-brain", "src\tiny-brain.csproj", "{71ED6FFF-AFD9-C033-F93B-B2229AA9472D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "tiny-brain-test", "code\test\tiny-brain-test.csproj", "{7D35C0D9-71F6-3FD2-A267-1537DF414438}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "tiny-brain-test", "test\tiny-brain-test.csproj", "{7D35C0D9-71F6-3FD2-A267-1537DF414438}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "apps", "apps", "{9739F4DD-E1BB-81D0-8137-FF0FCA75CB53}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "playgroung", "code\apps\playground\playgroung.csproj", "{CBA3A01F-1E92-3C1F-4042-E3CDC7CD9996}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "playgroung", "apps\playground\playgroung.csproj", "{CBA3A01F-1E92-3C1F-4042-E3CDC7CD9996}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "files", "files", "{61A6599A-D1C9-4C0A-97A6-4B073FEDDE09}"
 	ProjectSection(SolutionItems) = preProject
-		README.md = README.md
-		version = version
+		..\README.md = ..\README.md
+		..\version = ..\version
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{7131F29C-2885-4846-972B-DFF7179E4F75}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tiny", "tiny", "{AC36BEF3-595D-4F6B-B7D7-26698B0949AC}"
 	ProjectSection(SolutionItems) = preProject
-		docs\tiny\brain.md = docs\tiny\brain.md
+		..\docs\tiny\brain.md = ..\docs\tiny\brain.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "assets", "assets", "{6E1DF246-D051-4A88-A678-BDFAAFA878E9}"
 	ProjectSection(SolutionItems) = preProject
-		docs\assets\neuron.png = docs\assets\neuron.png
+		..\docs\assets\neuron.png = ..\docs\assets\neuron.png
+		..\docs\assets\tanh.png = ..\docs\assets\tanh.png
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CI", "CI", "{634BF414-5AE2-485E-885F-5A9EBDAF99B7}"
+	ProjectSection(SolutionItems) = preProject
+		..\.github\workflows\ci.yaml = ..\.github\workflows\ci.yaml
+		..\.github\workflows\publish.yaml = ..\.github\workflows\publish.yaml
 	EndProjectSection
 EndProject
 Global
