@@ -6,10 +6,11 @@ using static TinyBrain.Constants;
 
 namespace TinyBrain;
 
-public class Neuron(string id, int numberOfInputs) :
+public class Neuron(string id, int numberOfInputs, ActivationType activationType) :
     INeuron
 {
     public string Id { get; } = id;
+    public ActivationType ActivationType { get; } = activationType;
     private static readonly Random _random = new();
 
     private Operand[] _weights = new Operand[numberOfInputs]
@@ -24,21 +25,17 @@ public class Neuron(string id, int numberOfInputs) :
 
     public Operand[] Parameters => [.._weights, _bias];
 
-    protected Operand InternalForward(Operand[] inputs, Func<string, NeuronSteps, object, Unit> observe)
+    private Operand CellBody(Operand[] inputs)
         => (inputs
             .Select((input, index) => input * Weights[index])
-            .Tee(_ => observe(Id, NeuronSteps.WEIGHTS, _))
             .Fold(Operand.Of(ZERO), (a, i) => a + i))
-            .Tee(_ => observe(Id, NeuronSteps.SUM, new[] {_, Bias}))
-            .Map(_ => _ + Bias)
-            .Tee(_ => observe(Id, NeuronSteps.BODY, _))
-            .Activation()
-            .Tee(_ => observe(Id, NeuronSteps.ACTIVATION, _));
+            .Map(_ => _ + Bias);
 
     public Unit ZeroGradient()
         => Parameters.ForEach(_ => _.Gradient = 0);
 
-    public virtual Operand Forward(Operand[] inputs)
+    public Operand Forward(Operand[] inputs)
         => ZeroGradient()
-            .Map(_ => InternalForward(inputs, (_, _, _) => Unit.Default));
+            .Map(_ => CellBody(inputs))
+            .Map(this.Activation);
 }

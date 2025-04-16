@@ -148,12 +148,6 @@ public class Operand
                     Unit.Default
                         .Tee(__ => Gradient += exponent * Math.Pow(Data, exponent - 1) * _.Gradient));
 
-    public Operand Activation()
-        => this
-            .Map(_ => 2 * this)
-            .Map(_ => _.Exp())
-            .Map(_ => (_ - 1) / (_ + 1));   
-
     public Operand Relu()
         => new Operand(
             Data < 0 ? 0 : Data,

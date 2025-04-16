@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Linq;
-using Newtonsoft.Json.Serialization;
 using Shouldly;
 using TinyFp;
 using TinyFp.Extensions;
@@ -12,7 +11,7 @@ public class NeuronTests
     [Test]
     public void Neuron_Weights_and_Bias()
     {
-        var neuron = new Neuron("test", 3);
+        var neuron = new Neuron("test", 3, ActivationType.Tanh);
         
         neuron.Weights.Length.ShouldBe(3);
         neuron.Weights.Min(_ => _.Data).ShouldBeGreaterThanOrEqualTo(-1);
@@ -29,7 +28,7 @@ public class NeuronTests
     public void Forward()
     {
         Func<string, string, Unit> observe = (id, log) => Unit.Default.Tee(__ => Console.WriteLine($"{id}: {log}")); 
-        var neuron = new Neuron("test", 3);
+        var neuron = new Neuron("test", 3, ActivationType.Tanh);
         Operand[] operands = [Operand.Of(1), Operand.Of(1), Operand.Of(1)];
         
         var target = Operand.Of(1);

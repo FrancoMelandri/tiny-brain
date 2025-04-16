@@ -9,14 +9,17 @@ public class MLP
     public string Id { get;  }
     public Layer[] Layers { get; }
 
-    public MLP(string id, int numberOfInputs, int[] numberOfNeurons)
+    public MLP(string id,
+        int numberOfInputs,
+        int[] numberOfNeurons,
+        ActivationType activationType = ActivationType.Tanh)
     {
         Id = id;
         int[] totals = [numberOfInputs];
         totals = [..totals, ..numberOfNeurons];
         Layers = new Layer[totals.Length]
             .SkipLast(ONE)
-            .Select((input, index) => new Layer($"{index}", totals[index], totals[index + 1]))
+            .Select((input, index) => new Layer($"{index}", totals[index], totals[index + 1], activationType))
             .ToArray();
     }
 
@@ -28,10 +31,4 @@ public class MLP
         => Layers
             .Fold(inputs,
                 (a, i) => i.Forward(a));
-    // {
-    //     var o = inputs;
-    //     foreach (var x in Layers)
-    //         o = x.Forward(o);
-    //     return o;
-    // }
 }

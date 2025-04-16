@@ -1,5 +1,4 @@
-﻿using System;
-using Shouldly;
+﻿using Shouldly;
 
 namespace TinyBrain.Test;
 
@@ -160,7 +159,7 @@ public class OperandTests
         var x1w1x2w2 = x1w1 + x2w2;
         var n = x1w1x2w2 + b;
         
-        var o = n.Activation();
+        var o = n.Tanh();
         o.Backpropagation();
         
         o.Data.ShouldBe(0.7071067811865476);
