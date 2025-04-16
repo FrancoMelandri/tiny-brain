@@ -11,6 +11,7 @@ public class Neuron(string id, int numberOfInputs, ActivationType activationType
 {
     public string Id { get; } = id;
     public ActivationType ActivationType { get; } = activationType;
+
     private static readonly Random _random = new();
 
     private Operand[] _weights = new Operand[numberOfInputs]
@@ -31,7 +32,7 @@ public class Neuron(string id, int numberOfInputs, ActivationType activationType
             .Fold(Operand.Of(ZERO), (a, i) => a + i))
             .Map(_ => _ + Bias);
 
-    public Unit ZeroGradient()
+    private Unit ZeroGradient()
         => Parameters.ForEach(_ => _.Gradient = 0);
 
     public Operand Forward(Operand[] inputs)

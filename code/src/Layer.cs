@@ -1,4 +1,6 @@
 ﻿using System.Linq;
+using TinyFp;
+using TinyFp.Extensions;
 
 namespace TinyBrain;
 
@@ -16,6 +18,10 @@ public class Layer(string id, int numberOfInputs,
             .SelectMany(_ => _.Parameters)
             .ToArray();
 
+    private Unit ZeroGradient()
+        => Parameters.ForEach(_ => _.Gradient = 0);
+
     public Operand[] Forward(Operand[] inputs)
-        => Neurons.Select(neuron => neuron.Forward(inputs)).ToArray();
+        => ZeroGradient()
+            .Map(_ => Neurons.Select(neuron => neuron.Forward(inputs)).ToArray());
 }

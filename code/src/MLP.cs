@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using TinyFp;
 using TinyFp.Extensions;
 using static TinyBrain.Constants;
 
@@ -27,8 +28,12 @@ public class MLP
         .SelectMany(_ => _.Parameters)
         .ToArray();
 
+    private Unit ZeroGradient()
+        => Parameters.ForEach(_ => _.Gradient = 0);
+
     public Operand[] Forward(Operand[] inputs)
-        => Layers
-            .Fold(inputs,
-                (a, i) => i.Forward(a));
+        => ZeroGradient()
+            .Map(_ => Layers
+                            .Fold(inputs,
+                                (a, i) => i.Forward(a)));
 }
