@@ -24,21 +24,17 @@ public class Neuron(string id, int numberOfInputs) :
 
     public Operand[] Parameters => [.._weights, _bias];
 
-    protected Operand InternalForward(Operand[] inputs, Func<string, NeuronSteps, object, Unit> observe)
+    protected Operand InternalForward(Operand[] inputs)
         => (inputs
             .Select((input, index) => input * Weights[index])
-            .Tee(_ => observe(Id, NeuronSteps.WEIGHTS, _))
             .Fold(Operand.Of(ZERO), (a, i) => a + i))
-            .Tee(_ => observe(Id, NeuronSteps.SUM, new[] {_, Bias}))
             .Map(_ => _ + Bias)
-            .Tee(_ => observe(Id, NeuronSteps.BODY, _))
-            .Activation()
-            .Tee(_ => observe(Id, NeuronSteps.ACTIVATION, _));
+            .Activation();
 
     public Unit ZeroGradient()
         => Parameters.ForEach(_ => _.Gradient = 0);
 
     public virtual Operand Forward(Operand[] inputs)
         => ZeroGradient()
-            .Map(_ => InternalForward(inputs, (_, _, _) => Unit.Default));
+            .Map(_ => InternalForward(inputs));
 }
