@@ -10,7 +10,7 @@ public class LayerTests
     [Test]
     public void Layer_Ok()
     {
-        var layer = new Layer("test", 4, 3);
+        var layer = new Layer("test", 4, 3, ActivationType.Tanh);
         var outs = layer.Forward([Operand.Of(1), Operand.Of(2), Operand.Of(3), Operand.Of(4)]);
         
         layer.Neurons.Length.ShouldBe(3);
@@ -28,7 +28,7 @@ public class LayerTests
     [Test]
     public void Forward()
     {
-        var layer = new Layer("test", 3, 3);
+        var layer = new Layer("test", 3, 3, ActivationType.Tanh);
         Operand[] operands = [Operand.Of(1), Operand.Of(2), Operand.Of(3)];
 
         var target = new[]

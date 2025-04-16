@@ -6,10 +6,11 @@ using static TinyBrain.Constants;
 
 namespace TinyBrain;
 
-public class Neuron(string id, int numberOfInputs) :
+public class Neuron(string id, int numberOfInputs, ActivationType activationType) :
     INeuron
 {
     public string Id { get; } = id;
+    public ActivationType ActivationType { get; } = activationType;
     private static readonly Random _random = new();
 
     private Operand[] _weights = new Operand[numberOfInputs]
@@ -30,14 +31,11 @@ public class Neuron(string id, int numberOfInputs) :
             .Fold(Operand.Of(ZERO), (a, i) => a + i))
             .Map(_ => _ + Bias);
 
-    private static Operand Activation(Operand body)
-        => body.Activation();
-
     public Unit ZeroGradient()
         => Parameters.ForEach(_ => _.Gradient = 0);
 
-    public virtual Operand Forward(Operand[] inputs)
+    public Operand Forward(Operand[] inputs)
         => ZeroGradient()
             .Map(_ => CellBody(inputs))
-            .Map(Activation);
+            .Map(this.Activation);
 }

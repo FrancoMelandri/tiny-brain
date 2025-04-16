@@ -2,12 +2,14 @@
 
 namespace TinyBrain;
 
-public class Layer(string id, int numberOfInputs, int numberOfNeurons)
+public class Layer(string id, int numberOfInputs,
+    int numberOfNeurons,
+    ActivationType activationType)
 {
     public string Id { get; } = id;
 
     public Neuron[] Neurons { get; } = new Neuron[numberOfNeurons]
-        .Select((_, index) => new Neuron($"{id}-{index}", numberOfInputs))
+        .Select((_, index) => new Neuron($"{id}-{index}", numberOfInputs, activationType))
         .ToArray();
 
     public Operand[] Parameters => Neurons
