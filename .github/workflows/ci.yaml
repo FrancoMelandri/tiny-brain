@@ -22,7 +22,7 @@ jobs:
 
     - name: Build
       run: |
-        dotnet build
+        dotnet build code/tiny-brain.sln
 
     - name: Test
       run: |
