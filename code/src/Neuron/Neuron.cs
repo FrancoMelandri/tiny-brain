@@ -24,17 +24,20 @@ public class Neuron(string id, int numberOfInputs) :
 
     public Operand[] Parameters => [.._weights, _bias];
 
-    protected Operand InternalForward(Operand[] inputs)
+    private Operand CellBody(Operand[] inputs)
         => (inputs
             .Select((input, index) => input * Weights[index])
             .Fold(Operand.Of(ZERO), (a, i) => a + i))
-            .Map(_ => _ + Bias)
-            .Activation();
+            .Map(_ => _ + Bias);
+
+    private static Operand Activation(Operand body)
+        => body.Activation();
 
     public Unit ZeroGradient()
         => Parameters.ForEach(_ => _.Gradient = 0);
 
     public virtual Operand Forward(Operand[] inputs)
         => ZeroGradient()
-            .Map(_ => InternalForward(inputs));
+            .Map(_ => CellBody(inputs))
+            .Map(Activation);
 }
