@@ -1,5 +1,7 @@
 ﻿using System;
-using System.Linq; // Required for Sum() and Any()
+using System.Linq;
+using TinyBrain;
+using TinyFp.Extensions; // Required for Sum() and Any()
 
 public static class SamplingUtils
 {
@@ -133,5 +135,67 @@ public static class SamplingUtils
         // equal to finalCumulativeSum, the loop might finish. In this case,
         // returning the last index is the logical choice.
         return probabilities.Length - 1;
+    }
+    
+    /// <summary>
+    /// Converts an array of class indices into their one-hot encoded representation.
+    /// Mimics the behavior of torch.nn.functional.one_hot.
+    /// </summary>
+    /// <param name="indices">An array of non-negative integer class indices.</param>
+    /// <param name="numClasses">The total number of classes. This determines the length of each one-hot vector.
+    /// It must be greater than the maximum value in indices.</param>
+    /// <returns>A jagged array (array of arrays), where each inner array is the one-hot representation
+    /// of the corresponding input index. The inner arrays will have a length equal to numClasses.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if indices is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown if numClasses is not positive, or if any index in indices is less than 0 or greater than or equal to numClasses.
+    /// </exception>
+    public static Operand[][] OneHot(int[] indices, int numClasses)
+    {
+        // --- Input Validation ---
+        if (indices == null)
+        {
+            throw new ArgumentNullException(nameof(indices));
+        }
+        if (numClasses <= 0)
+        {
+            // The number of classes must be at least 1.
+            throw new ArgumentOutOfRangeException(nameof(numClasses), "Number of classes must be positive.");
+        }
+
+        // Validate each index against the number of classes
+        for (int i = 0; i < indices.Length; i++)
+        {
+            int index = indices[i];
+            if (index < 0 || index >= numClasses)
+            {
+                throw new ArgumentOutOfRangeException(nameof(indices),
+                    $"Input index at position {i} ({index}) is out of the valid range [0, {numClasses - 1}].");
+            }
+        }
+
+        // --- One-Hot Encoding ---
+
+        // Create the outer array (jagged array) to hold the results.
+        // Its length is the same as the number of input indices.
+        Operand[][] oneHotResult = new Operand[indices.Length][];
+
+        // Iterate through each input index
+        for (int i = 0; i < indices.Length; i++)
+        {
+            int currentIndex = indices[i];
+
+            // Create the inner array (the one-hot vector) for the current index.
+            // Its length is determined by numClasses.
+            // C# automatically initializes integer arrays with all zeros.
+            Operand[] oneHotVector = new Operand[numClasses].Select(_ => Operand.Of(0.0)).ToArray();
+            // Set the element at the position specified by the currentIndex to 1.
+            oneHotVector[currentIndex] = Operand.Of(1.0);
+
+            // Assign the completed one-hot vector to the result array.
+            oneHotResult[i] = oneHotVector;
+        }
+
+        return oneHotResult;
     }
 }
