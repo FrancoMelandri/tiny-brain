@@ -20,13 +20,13 @@ public class BiagramModel
     int CtoI(char c) => c - '`';
     char ItoC(int i) => (char)(i + '`');
     
-    public void InitializeBiagramModel()
+    public void Initialize()
     {
         // define the biagrams model using the probability
         // for each biagram we have a probability of the next character
         //
         // initialize a matrix containing the sum of the second character following the previous character
-        var N = _biagrams.Fold(new int[27, 27],
+        var counts = _biagrams.Fold(new int[27, 27],
             (a, i) => a.Tee(_ => a[CtoI(i.Item1), CtoI(i.Item2)] += 1));
 
         //
@@ -35,9 +35,9 @@ public class BiagramModel
         _probabilities = new double[27, 27];
         for (var i = 0; i < 27; ++i)
         {
-            var sum = Enumerable.Range(0, 27).Select(j => N[i, j]).Sum();
+            var sum = Enumerable.Range(0, 27).Select(j => counts[i, j]).Sum();
             for (var j = 0; j < 27; ++j)
-                _probabilities[i, j] = (double)N[i, j]/sum;
+                _probabilities[i, j] = (double)counts[i, j]/sum;
         }
     }
     
@@ -73,6 +73,15 @@ public class BiagramModel
         }    
     }
 
+    public (int[] xs, int[] ys) CreateTraining()
+        => _biagrams
+            .Fold((0, (new int[_biagrams.Count()], new int[_biagrams.Count()])),
+                (a, i) =>
+                    (a.Item1 + 1, 
+                        (a.Item2.Item1.Tee(xs => xs[a.Item1] = CtoI(i.Char1)),
+                         a.Item2.Item2.Tee(ys => ys[a.Item1] = CtoI(i.Char2)))))
+            .Map(fold => fold.Item2);
+    
     //
     // define a function to estimate the the model prediction
     // we can consider the likelihood to estimate the parameter
@@ -109,5 +118,4 @@ public class BiagramModel
             )
             .Fold(new List<(char, char)>(),
                 (a, i) => a.Tee(_ => _.AddRange(i.Select(_ => (_.Char1, _.Char2)))));
-    
 }
