@@ -75,12 +75,13 @@ public class BiagramModel
 
     public (int[] xs, int[] ys) CreateTraining()
         => _biagrams
-            .Fold((0, (new int[_biagrams.Count()], new int[_biagrams.Count()])),
-                (a, i) =>
-                    (a.Item1 + 1, 
-                        (a.Item2.Item1.Tee(xs => xs[a.Item1] = CtoI(i.Char1)),
-                         a.Item2.Item2.Tee(ys => ys[a.Item1] = CtoI(i.Char2)))))
-            .Map(fold => fold.Item2);
+            .Map(biagrams => biagrams
+                .Fold((0, (new int[biagrams.Count()], new int[biagrams.Count()])),
+                    (a, i) =>
+                        (a.Item1 + 1, 
+                            (a.Item2.Item1.Tee(xs => xs[a.Item1] = CtoI(i.Char1)),
+                             a.Item2.Item2.Tee(ys => ys[a.Item1] = CtoI(i.Char2)))))
+                .Map(fold => fold.Item2));
     
     //
     // define a function to estimate the the model prediction

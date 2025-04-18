@@ -2,12 +2,12 @@
 
 namespace TinyBrain.Test;
 
-public class MLPTests
+public class BrainTests
 {
     [Test]
     public void MPL_Ok()
     {
-        var mpl = new MLP("test", 4, [3, 4, 1]);
+        var mpl = new Brain("test", 4, [3, 4, 1]);
         var o = mpl.Forward([Operand.Of(1), Operand.Of(2), Operand.Of(3), Operand.Of(4)]);
         
         mpl.Layers.Length.ShouldBe(3);

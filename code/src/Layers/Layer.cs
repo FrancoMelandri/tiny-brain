@@ -4,7 +4,8 @@ using TinyFp.Extensions;
 
 namespace TinyBrain;
 
-public class Layer(string id, int numberOfInputs,
+public class Layer(string id,
+    int numberOfInputs,
     int numberOfNeurons,
     ActivationType activationType)
 {

@@ -9,7 +9,7 @@ using TinyBrain;
 
 //
 // dataset information
-var wordsDataset = System.IO.File.ReadAllLines("names.txt").Take(1).ToArray();
+var wordsDataset = System.IO.File.ReadAllLines("names.txt").Take(100).ToArray();
 Console.WriteLine($"Found {wordsDataset.Length} words");
 
 Console.WriteLine("----");
@@ -37,15 +37,38 @@ Console.WriteLine("NeuralNetworks");
 var neuralNetwork = new NeuralNetworks(wordsDataset);
 neuralNetwork.Initialize();
 
+//
+// Learning
 var trainingSet = biagramsModel.CreateTraining();
 var xs = SamplingUtils.OneHot(trainingSet.xs, 27);
-var y = SamplingUtils.OneHot(trainingSet.ys, 27);
+var ys = SamplingUtils.OneHot(trainingSet.ys, 27);
 
-var layer = new Layer("biagram", 27, 27, ActivationType.None);
-var act = layer.Forward(xs[0]); // logits
+for (var loop = 0; loop < 100; loop += 1)
+{
+    var logits = neuralNetwork.Forward(xs);
+    var softMax = NeuralNetworks.Softmax(logits);
 
-act = act.Select(_ => _.Exp()).ToArray(); // count  
-var sum = act.Sum(_ => _.Data); 
-act = act.Select(_ => _ / sum).ToArray(); // probabilities
+    //
+    // loss
+    var logSum = Operand.Of(0);
+    for (var i = 0; i < xs.Length; i++)
+    {
+        var y = trainingSet.ys[i];
+        logSum -= softMax[i][y].Log();
+    }
+    var lossNeural = logSum / trainingSet.xs.Length;
+    lossNeural.Label = "lossNeural";
+    
+    Console.WriteLine($"Step {loop}: loss={lossNeural.Data}");
+
+    lossNeural.Backpropagation();
+
+    //
+    // update the weights
+    foreach (var x in neuralNetwork.Parameters)
+        x.Data += -0.1 * x.Gradient;
+}
+
+neuralNetwork.Generate(5);
 
 Console.WriteLine("");

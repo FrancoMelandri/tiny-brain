@@ -22,7 +22,7 @@ public class MLPTrainingTests
             Operand.Of(1), Operand.Of(-1), Operand.Of(1), Operand.Of(-1)
         ];
         
-        var mpl = new MLP("test", 3, [4, 4, 1]);
+        var mpl = new Brain("test", 3, [4, 4, 1]);
         mpl.Parameters.Length.ShouldBe(41);
         
         var step = 0;

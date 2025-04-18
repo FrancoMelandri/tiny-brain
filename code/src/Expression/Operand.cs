@@ -142,6 +142,12 @@ public class Operand
                     Unit.Default
                         .Tee(__ => Gradient += _.Data * _.Gradient));
 
+    public Operand Log()
+        => new Operand(Math.Log(Data), (this, null))
+            .Tee(_ => _._backward = () =>
+                    Unit.Default
+                        .Tee(__ => Gradient += 1/_.Data * _.Gradient));
+
     public Operand Pow(double exponent)
         => new Operand(Math.Pow(Data, exponent), (this, null))
             .Tee(_ => _._backward = () =>
@@ -159,11 +165,74 @@ public class Operand
     private static List<Operand> BuildTopological(List<Operand> operands, Operand item)
         => operands
             .ToOption(_ => _.Contains(item))
-            .Map(_ => _.Tee(_ => item.Previous.Operand1.OnSome(previous => BuildTopological(_, previous))))
-            .Map(_ => _.Tee(_ => item.Previous.Operand2.OnSome(previous => BuildTopological(_, previous))))
+            .Map(_ => _.Tee(_ => item.Previous.Operand1.OnSome(operand1 => BuildTopological(_, operand1))))
+            .Map(_ => _.Tee(_ => item.Previous.Operand2.OnSome(operand2 => BuildTopological(_, operand2))))
             .Map(_ => _.Tee(_ => _.Add(item)))
             .OrElse(operands);
 
+    // private static List<Operand> BuildTopological(List<Operand> operands, Operand root)
+    // {
+    //     var result = new List<Operand>(operands);
+    //     var visited = new HashSet<Operand>(operands);
+    //     var stack = new Stack<Operand>();
+    //
+    //     stack.Push(root);
+    //
+    //     while (stack.Count > 0)
+    //     {
+    //         var current = stack.Peek();
+    //     
+    //         if (!visited.Contains(current))
+    //         {
+    //             // First visit to this node
+    //             visited.Add(current);
+    //         
+    //             // Push children onto stack
+    //             bool childrenAdded = false;
+    //         
+    //             // Process second operand first, then first operand
+    //             // This maintains the same order as the recursive version
+    //             if (current.Previous.Operand2.IsSome)
+    //             {
+    //                 var operand2 = current.Previous.Operand2.Unwrap();
+    //                 if (!visited.Contains(operand2))
+    //                 {
+    //                     stack.Push(operand2);
+    //                     childrenAdded = true;
+    //                 }
+    //             }
+    //         
+    //             if (current.Previous.Operand1.IsSome)
+    //             {
+    //                 var operand1 = current.Previous.Operand1.Unwrap();
+    //                 if (!visited.Contains(operand1))
+    //                 {
+    //                     stack.Push(operand1);
+    //                     childrenAdded = true;
+    //                 }
+    //             }
+    //         
+    //             // If no children added, we can add this node to result
+    //             if (!childrenAdded)
+    //             {
+    //                 result.Add(current);
+    //                 stack.Pop();
+    //             }
+    //         }
+    //         else
+    //         {
+    //             // We've already visited this node
+    //             if (!result.Contains(current))
+    //             {
+    //                 result.Add(current);
+    //             }
+    //             stack.Pop();
+    //         }
+    //     }
+    //
+    //     return result;
+    // }
+    
     public Unit Backpropagation()
         => Unit.Default
             .Tee(_ => Gradient = ONE)
