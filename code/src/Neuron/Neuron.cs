@@ -14,17 +14,14 @@ public class Neuron(string id, int numberOfInputs, ActivationType activationType
 
     private static readonly Random _random = new();
 
-    private Operand[] _weights = new Operand[numberOfInputs]
+    public Operand[] Weights { get; } = new Operand[numberOfInputs]
         .Select((_, index) =>
             Operand.Of(_random.NextDouble() * 2 - 1, $"{WEIGHT_PREFIX}{ID_SEPARATOR}{id}{ID_SEPARATOR}{index}"))
         .ToArray();
 
-    private Operand _bias = Operand.Of(_random.NextDouble() * 2 - 1, $"{BIAS_PREFIX}{ID_SEPARATOR}{id}");
-    
-    public Operand[] Weights => _weights;
-    public Operand Bias => _bias;
+    public Operand Bias { get; } = Operand.Of(_random.NextDouble() * 2 - 1, $"{BIAS_PREFIX}{ID_SEPARATOR}{id}");
 
-    public Operand[] Parameters => [.._weights, _bias];
+    public Operand[] Parameters => [..Weights, Bias];
 
     private Operand CellBody(Operand[] inputs)
         => (inputs

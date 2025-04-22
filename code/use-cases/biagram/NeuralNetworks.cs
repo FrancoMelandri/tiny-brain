@@ -1,7 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Globalization;
 using System.Linq;
+using System.Runtime.Serialization;
+using System.Text;
+using System.Threading.Tasks;
 using TinyBrain;
 using TinyFp.Extensions;
 
@@ -38,6 +42,11 @@ public class NeuralNetworks
 
     public void Initialize()
     {
+        if (!System.IO.File.Exists("parameters.txt"))
+            return;
+        var lines = System.IO.File.ReadAllLines("parameters.txt");
+        for (var index = 0; index < lines.Length; index++)
+            _brain.Parameters[index].Data = double.Parse(lines[index], CultureInfo.InvariantCulture);
     }
 
     public Operand[] Parameters => _brain.Parameters;
@@ -73,7 +82,7 @@ public class NeuralNetworks
             Console.WriteLine(generateString);
         }    
     }
-    
+
     public Operand[][] Forward(Operand[][] operands)
         => operands
             .Fold((Index: 0, Logits: new Operand[operands.Length][]),
@@ -90,4 +99,13 @@ public class NeuralNetworks
                             .Map(counts => (Counts: counts, Sum: counts.Sum(_ => _.Data)))
                             .Map(tuple => tuple.Counts.Select(_ => _.Tee(_ => _ /= tuple.Sum)).ToArray()))))
             .Map(_ => _.Probs);
+
+    public void SaveParameters()
+        => System.IO.File.WriteAllText(
+            "parameters.txt",
+            _brain
+            .Parameters
+            .Fold(new StringBuilder(),
+                (a, i) => a.AppendLine(i.Data.ToString(CultureInfo.InvariantCulture)))
+                    .ToString());
 }

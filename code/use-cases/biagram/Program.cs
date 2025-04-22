@@ -7,9 +7,10 @@ using TinyBrain;
 // giving one character we want to predict the next character in the sequence
 //
 
+const int MaxWords = 100;
 //
 // dataset information
-var wordsDataset = System.IO.File.ReadAllLines("names.txt").Take(100).ToArray();
+var wordsDataset = System.IO.File.ReadAllLines("names.txt").Take(MaxWords).ToArray();
 Console.WriteLine($"Found {wordsDataset.Length} words");
 
 Console.WriteLine("----");
@@ -40,10 +41,12 @@ neuralNetwork.Initialize();
 //
 // Learning
 var trainingSet = biagramsModel.CreateTraining();
+
 var xs = SamplingUtils.OneHot(trainingSet.xs, 27);
 var ys = SamplingUtils.OneHot(trainingSet.ys, 27);
+Console.WriteLine($"Training set dimension: {xs.Length}");
 
-for (var loop = 0; loop < 100; loop += 1)
+for (var loop = 0; loop < 20; loop += 1)
 {
     var logits = neuralNetwork.Forward(xs);
     var softMax = NeuralNetworks.Softmax(logits);
@@ -70,5 +73,6 @@ for (var loop = 0; loop < 100; loop += 1)
 }
 
 neuralNetwork.Generate(5);
+neuralNetwork.SaveParameters();
 
 Console.WriteLine("");

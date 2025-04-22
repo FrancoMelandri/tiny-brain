@@ -46,7 +46,7 @@ public class MLPTrainingTests
 
             totalLoss.Backpropagation();
             foreach (var x in mpl.Parameters)
-                x.Data += -0.1 * x.Gradient;
+                x.Data += -0.5 * x.Gradient;
         }
         
         Console.WriteLine($"totalLoss {step} = {totalLoss.Data}");
