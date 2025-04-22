@@ -58,7 +58,7 @@ public class Operand
         => a + Of(bval);
 
     public static Operand operator +(double aval, Operand b)
-        => b + Of(aval);
+        => Of(aval) + b;
 
     public static Operand operator -(Operand a, Operand b)
         => new Operand(a.Data - b.Data, (a, b))
@@ -71,7 +71,7 @@ public class Operand
         => a - Of(bval);
 
     public static Operand operator -(double aval, Operand b)
-        => b - Of(aval);
+        => Of(aval) - b;
 
     public static Operand operator *(Operand a, Operand b)
         => new Operand(a.Data * b.Data, (a, b))
@@ -84,7 +84,7 @@ public class Operand
         => a * Of(bval);
 
     public static Operand operator *(double aval, Operand b)
-        => b * Of(aval);
+        => Of(aval) * b ;
 
     public static Operand operator /(Operand a, Operand b)
         => new Operand(a.Data / b.Data, (a, b))
@@ -97,7 +97,7 @@ public class Operand
         => a / Of(bval);
 
     public static Operand operator /(double aval, Operand b)
-        => b / Of(aval);
+        => Of(aval) / b;
 
     public Operand Exp()
         => new Operand(Math.Exp(Data), (this, null))
