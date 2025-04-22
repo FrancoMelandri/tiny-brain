@@ -244,6 +244,16 @@ public class OperandTests
     }
 
     [Test]
+    public void Token_LogIs_Right()
+    {
+        var operand1 = Operand.Of(5.0);
+        var operand2 = operand1.Log();
+        operand2.Data.ShouldBe(1.6094379124341003746007593332262);
+        operand2.Previous.Operand1.Unwrap().ShouldBe(operand1);
+        operand2.Previous.Operand2.IsNone.ShouldBe(true);
+    }
+
+    [Test]
     public void Token_Pow_Is_Right()
     {
         var operand1 = Operand.Of(2.0);

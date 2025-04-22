@@ -5,19 +5,19 @@ using static TinyBrain.Constants;
 
 namespace TinyBrain;
 
-public class MLP
+public class Brain
 {
     public string Id { get;  }
     public Layer[] Layers { get; }
 
-    public MLP(string id,
+    public Brain(string id,
         int numberOfInputs,
-        int[] numberOfNeurons,
+        int[] layers,
         ActivationType activationType = ActivationType.Tanh)
     {
         Id = id;
         int[] totals = [numberOfInputs];
-        totals = [..totals, ..numberOfNeurons];
+        totals = [..totals, ..layers];
         Layers = new Layer[totals.Length]
             .SkipLast(ONE)
             .Select((input, index) => new Layer($"{index}", totals[index], totals[index + 1], activationType))

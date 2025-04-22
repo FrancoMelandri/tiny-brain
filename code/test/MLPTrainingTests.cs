@@ -22,7 +22,7 @@ public class MLPTrainingTests
             Operand.Of(1), Operand.Of(-1), Operand.Of(1), Operand.Of(-1)
         ];
         
-        var mpl = new MLP("test", 3, [4, 4, 1]);
+        var mpl = new Brain("test", 3, [4, 4, 1]);
         mpl.Parameters.Length.ShouldBe(41);
         
         var step = 0;
@@ -46,7 +46,7 @@ public class MLPTrainingTests
 
             totalLoss.Backpropagation();
             foreach (var x in mpl.Parameters)
-                x.Data += -0.1 * x.Gradient;
+                x.Data += -0.5 * x.Gradient;
         }
         
         Console.WriteLine($"totalLoss {step} = {totalLoss.Data}");
