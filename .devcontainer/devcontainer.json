@@ -1,5 +1,5 @@
 {
-    "name": "NET 8 DevContainer",
+    "name": "NET 10 DevContainer",
     "build": {
         "dockerfile": "Dockerfile"
     },
