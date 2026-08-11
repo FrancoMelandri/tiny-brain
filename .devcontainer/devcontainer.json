@@ -3,6 +3,9 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
+    "mounts": [
+        "source=${localEnv:USERPROFILE}/.nuget/packages,target=/root/.nuget/packages,type=bind,consistency=cached"
+    ],
     "settings": {
         "terminal.integrated.shell.linux": "/bin/bash"
     },
