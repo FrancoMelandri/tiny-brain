@@ -1,5 +1,5 @@
 # Use the official .NET 8 SDK image
-FROM mcr.microsoft.com/dotnet/sdk:8.0
+FROM mcr.microsoft.com/dotnet/sdk:10.0
 
 # Set the working directory inside the container
 WORKDIR /workspace
