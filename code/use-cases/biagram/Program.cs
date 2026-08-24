@@ -10,7 +10,7 @@ using TinyBrain;
 const int MaxWords = 100;
 //
 // dataset information
-var wordsDataset = System.IO.File.ReadAllLines("names.txt").Take(MaxWords).ToArray();
+var wordsDataset = System.IO.File.ReadAllLines(System.IO.Path.Combine(AppContext.BaseDirectory, "names.txt")).Take(MaxWords).ToArray();
 Console.WriteLine($"Found {wordsDataset.Length} words");
 
 Console.WriteLine("----");
