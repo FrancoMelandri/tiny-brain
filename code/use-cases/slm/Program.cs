@@ -43,7 +43,7 @@ else
         foreach (var (ctx, target) in trainingData.Pairs)
         {
             var logits = model.Forward(ctx);
-            var probs = Softmax(logits);
+            var probs = logits.Softmax();
             var loss = Operand.Of(0) - probs[target].Log();
             epochLoss += loss.Data;
 
@@ -85,15 +85,6 @@ for (var i = 0; i < 20; i++)
 }
 
 Console.WriteLine(string.Join(" ", generated));
-
-// Numerically stable softmax with tracked denominator (correct gradients for training)
-static Operand[] Softmax(Operand[] logits)
-{
-    var maxLogit = logits.Max(l => l.Data);
-    var exps = logits.Select(l => (l - maxLogit).Exp()).ToArray();
-    var sumOp = exps.Aggregate(Operand.Of(0.0), (a, e) => a + e);
-    return exps.Select(e => e / sumOp).ToArray();
-}
 
 // Untracked softmax for generation (no Operand graph created)
 static double[] SoftmaxProbs(Operand[] logits)

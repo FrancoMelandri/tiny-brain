@@ -92,13 +92,7 @@ public class NeuralNetworks
             .Map(fold => fold.Logits);
 
     public static Operand[][] Softmax(Operand[][] logits)
-        => logits.Fold((Index: 0, Probs: new Operand[logits.Length][]),
-                (a, i) =>
-                    (a.Index + 1,
-                        a.Probs.Tee(_ => _[a.Index] = i.Select(_ => _.Exp()).ToArray()
-                            .Map(counts => (Counts: counts, Sum: counts.Sum(_ => _.Data)))
-                            .Map(tuple => tuple.Counts.Select(_ => _.Tee(_ => _ /= tuple.Sum)).ToArray()))))
-            .Map(_ => _.Probs);
+        => logits.Select(row => row.Softmax()).ToArray();
 
     public void SaveParameters()
         => System.IO.File.WriteAllText(

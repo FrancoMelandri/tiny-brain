@@ -51,6 +51,8 @@ Brain  (MLP)
 
 `Activations.cs` holds the dispatch dictionary keyed on `ActivationType` (currently `None` and `Tanh`). `Tanh` is expressed in terms of `Exp`, `/`, and `-` on `Operand` so its gradient flows automatically through the graph — no hand-coded derivative needed.
 
+`Extensions.cs` adds extension methods on `Operand` and `Operand[]`. `Softmax(this Operand[] logits)` is the canonical implementation: numerically stable (max-subtraction), tracked `Operand` denominator for correct cross-entropy gradients.
+
 ### Functional style
 
 The library depends on `tiny-fp` (functional primitives: `Option`, `Unit`, `Map`, `Tee`, `Fold`, `ForEach`). Prefer these combinators over imperative loops; `Unit` is used as the return type of side-effecting void-like operations.
