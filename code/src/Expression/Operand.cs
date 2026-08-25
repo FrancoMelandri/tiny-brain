@@ -64,7 +64,7 @@ public class Operand
         => new Operand(a.Data - b.Data, (a, b))
             .Tee(_ => _._backward = () =>
                 Unit.Default
-                    .Tee(__ => a.Gradient += GRADIENT_MINUS * _.Gradient)
+                    .Tee(__ => a.Gradient += GRADIENT_PLUS * _.Gradient)
                     .Tee(__ => b.Gradient += GRADIENT_MINUS * _.Gradient));
 
     public static Operand operator -(Operand a, double bval)
@@ -109,7 +109,7 @@ public class Operand
         => new Operand(Math.Log(Data), (this, null))
             .Tee(_ => _._backward = () =>
                     Unit.Default
-                        .Tee(__ => Gradient += 1/_.Data * _.Gradient));
+                        .Tee(__ => Gradient += 1/Data * _.Gradient));
 
     public Operand Pow(double exponent)
         => new Operand(Math.Pow(Data, exponent), (this, null))

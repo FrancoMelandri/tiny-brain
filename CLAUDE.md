@@ -20,6 +20,9 @@ dotnet test code/test/tiny-brain-test.csproj --filter "FullyQualifiedName~<TestN
 # Run the bigram use-case
 dotnet run --project code/use-cases/biagram/biagram.csproj
 
+# Run the SLM use-case (first run trains 30 epochs and saves parameters.txt; subsequent runs load and generate)
+dotnet run --project code/use-cases/slm/slm.csproj
+
 # Run the playground
 dotnet run --project code/use-cases/playground/playgroung.csproj
 ```
@@ -48,6 +51,8 @@ Brain  (MLP)
 
 `Activations.cs` holds the dispatch dictionary keyed on `ActivationType` (currently `None` and `Tanh`). `Tanh` is expressed in terms of `Exp`, `/`, and `-` on `Operand` so its gradient flows automatically through the graph — no hand-coded derivative needed.
 
+`Extensions.cs` adds extension methods on `Operand` and `Operand[]`. `Softmax(this Operand[] logits)` is the canonical implementation: numerically stable (max-subtraction), tracked `Operand` denominator for correct cross-entropy gradients.
+
 ### Functional style
 
 The library depends on `tiny-fp` (functional primitives: `Option`, `Unit`, `Map`, `Tee`, `Fold`, `ForEach`). Prefer these combinators over imperative loops; `Unit` is used as the return type of side-effecting void-like operations.
@@ -55,6 +60,10 @@ The library depends on `tiny-fp` (functional primitives: `Option`, `Unit`, `Map`
 ### Use-cases
 
 `code/use-cases/biagram/` implements a character-level bigram language model using a `Brain(27 → 27)` with `ActivationType.None` followed by a manual softmax. Parameters can be saved/loaded via `SaveParameters` / `LoadParameters` to `parameters.txt`.
+
+`code/use-cases/slm/` implements a word-level N-gram Small Language Model (Bengio 2003 style). It adds an `EmbeddingTable` (trainable `Operand[vocabSize, embedDim]` lookup) on top of two chained `Brain` instances: a hidden layer (`ActivationType.Tanh`) and an output layer (`ActivationType.None`). A `Tokenizer` builds a top-`MaxVocabSize` (default 100) word vocabulary from `corpus.txt`. Training uses online SGD with gradient-norm clipping (threshold 1.0) and a numerically stable tracked softmax (denominator is an `Operand`, not a plain `double` — required for correct cross-entropy gradients). Parameters are saved/loaded to `parameters.txt`.
+
+`SlmModel` uses two separate `Brain` instances because `Brain` applies a single `ActivationType` uniformly across all its layers, but the SLM architecture requires two different activations: `Tanh` in the hidden layer (non-linearity to learn context-word interactions) and `None` on the output layer (raw logits fed into softmax + cross-entropy). Chaining `_hiddenBrain` → `_outputBrain` is the natural way to express that asymmetry without changing the `Brain` API.
 
 `code/use-cases/playground/` is a scratch area for manual experiments.
 
