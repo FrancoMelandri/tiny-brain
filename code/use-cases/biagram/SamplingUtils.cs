@@ -198,4 +198,13 @@ public static class SamplingUtils
 
         return oneHotResult;
     }
+
+    // Returns MatrixOperand [N, numClasses] — each row is a one-hot vector
+    public static MatrixOperand OneHotMatrix(int[] indices, int numClasses)
+    {
+        var data = new double[indices.Length, numClasses];
+        for (var i = 0; i < indices.Length; i++)
+            data[i, indices[i]] = 1.0;
+        return MatrixOperand.Of(data);
+    }
 }

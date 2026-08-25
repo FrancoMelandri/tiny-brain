@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using biagram;
 using TinyBrain;
@@ -8,26 +8,19 @@ using TinyBrain;
 //
 
 const int MaxWords = 100;
-//
-// dataset information
+
 var wordsDataset = System.IO.File.ReadAllLines(System.IO.Path.Combine(AppContext.BaseDirectory, "names.txt")).Take(MaxWords).ToArray();
 Console.WriteLine($"Found {wordsDataset.Length} words");
 
 Console.WriteLine("----");
 Console.WriteLine("BiagramsModel");
 
-//
-// evaluate all the biagrams for the list of words
 var biagramsModel = new BiagramModel(wordsDataset);
 biagramsModel.Initialize();
 
-//
-// generate characters using multinomial
 Console.WriteLine("Generate:");
 biagramsModel.Generate(10);
 
-//
-// evaluate the loss function
 var loss = biagramsModel.EvaluateLoss();
 Console.WriteLine($"Loss: {loss}");
 
@@ -38,38 +31,22 @@ Console.WriteLine("NeuralNetworks");
 var neuralNetwork = new NeuralNetworks(wordsDataset);
 neuralNetwork.Initialize();
 
-//
-// Learning
 var trainingSet = biagramsModel.CreateTraining();
+var inputMatrix = SamplingUtils.OneHotMatrix(trainingSet.xs, 27);  // [N, 27]
+Console.WriteLine($"Training set dimension: {trainingSet.xs.Length}");
 
-var xs = SamplingUtils.OneHot(trainingSet.xs, 27);
-var ys = SamplingUtils.OneHot(trainingSet.ys, 27);
-Console.WriteLine($"Training set dimension: {xs.Length}");
-
-for (var loop = 0; loop < 20; loop += 1)
+for (var loop = 0; loop < 50; loop++)
 {
-    var logits = neuralNetwork.Forward(xs);
-    var softMax = NeuralNetworks.Softmax(logits);
+    var logits = neuralNetwork.Forward(inputMatrix);   // [N, 27]
+    var probs  = logits.Softmax();                     // [N, 27]
+    var lossNN = probs.NLL(trainingSet.ys);            // [1, 1]  mean NLL
 
-    //
-    // loss
-    var logSum = Operand.Of(0);
-    for (var i = 0; i < xs.Length; i++)
-    {
-        var y = trainingSet.ys[i];
-        logSum -= softMax[i][y].Log();
-    }
-    var lossNeural = logSum / trainingSet.xs.Length;
-    lossNeural.Label = "lossNeural";
-    
-    Console.WriteLine($"Step {loop}: loss={lossNeural.Data}");
+    Console.WriteLine($"Step {loop}: loss={lossNN.Data[0]:F4}");
 
-    lossNeural.Backpropagation();
+    lossNN.Backpropagation();
 
-    //
-    // update the weights
-    foreach (var x in neuralNetwork.Parameters)
-        x.Data += -0.1 * x.Gradient;
+    foreach (var m in neuralNetwork.ParameterMatrices)
+        m.ApplyGradients(0.1, 1.0);
 }
 
 neuralNetwork.Generate(5);

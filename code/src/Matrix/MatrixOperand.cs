@@ -195,6 +195,28 @@ public class MatrixOperand
         return result;
     }
 
+    // Mean NLL over all rows: loss = -mean_i( log(Data[i, targets[i]]) )  ->  [1,1]
+    public MatrixOperand NLL(int[] targets)
+    {
+        var m = _rows;
+        var n = _cols;
+        var total = 0.0;
+        for (var i = 0; i < m; i++)
+            total += -Math.Log(Data[i * n + targets[i]] + 1e-10);
+        var loss = total / m;
+
+        var result = new MatrixOperand(new double[] { loss }, 1, 1, (this, null));
+        var inGrad = Gradient;
+        var dOut = result.Gradient;
+
+        result._backward = () =>
+        {
+            for (var i = 0; i < m; i++)
+                inGrad[i * n + targets[i]] += dOut[0] * (-1.0 / (m * (Data[i * n + targets[i]] + 1e-10)));
+        };
+        return result;
+    }
+
     // -log(Data[0, targetCol])  ->  [1,1]
     public MatrixOperand NLL(int targetCol)
     {
