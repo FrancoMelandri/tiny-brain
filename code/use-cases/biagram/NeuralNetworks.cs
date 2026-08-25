@@ -10,14 +10,14 @@ namespace biagram;
 
 public class NeuralNetworks
 {
-    private readonly MatrixBrain _brain;
+    private readonly Brain _brain;
 
     int CtoI(char c) => c - '`';
     char ItoC(int i) => (char)(i + '`');
 
     public NeuralNetworks(string[] words)
     {
-        _brain = new MatrixBrain("biagram", 27, [27], ActivationType.None);
+        _brain = new Brain("biagram", 27, [27], ActivationType.None);
     }
 
     public void Initialize()
@@ -40,9 +40,9 @@ public class NeuralNetworks
         }
     }
 
-    public MatrixOperand[] ParameterMatrices => _brain.ParameterMatrices;
+    public Operand[] ParameterMatrices => _brain.ParameterMatrices;
 
-    public MatrixOperand Forward(MatrixOperand input) => _brain.Forward(input);
+    public Operand Forward(Operand input) => _brain.Forward(input);
 
     public void Generate(int generations)
     {

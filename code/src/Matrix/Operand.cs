@@ -4,7 +4,7 @@ using System.Numerics.Tensors;
 
 namespace TinyBrain;
 
-public class MatrixOperand
+public class Operand
 {
     public double[] Data { get; }
     public double[] Gradient { get; }
@@ -15,10 +15,10 @@ public class MatrixOperand
     public int Rows => _rows;
     public int Cols => _cols;
 
-    private readonly (MatrixOperand Left, MatrixOperand Right) _previous;
+    private readonly (Operand Left, Operand Right) _previous;
     private Action _backward;
 
-    private MatrixOperand(double[] data, int rows, int cols)
+    private Operand(double[] data, int rows, int cols)
     {
         Data = data;
         Gradient = new double[rows * cols];
@@ -28,14 +28,14 @@ public class MatrixOperand
         _backward = () => { };
     }
 
-    private MatrixOperand(double[] data, int rows, int cols,
-        (MatrixOperand Left, MatrixOperand Right) previous)
+    private Operand(double[] data, int rows, int cols,
+        (Operand Left, Operand Right) previous)
         : this(data, rows, cols)
     {
         _previous = previous;
     }
 
-    public static MatrixOperand Of(double[,] src)
+    public static Operand Of(double[,] src)
     {
         var rows = src.GetLength(0);
         var cols = src.GetLength(1);
@@ -43,19 +43,19 @@ public class MatrixOperand
         for (var i = 0; i < rows; i++)
             for (var j = 0; j < cols; j++)
                 flat[i * cols + j] = src[i, j];
-        return new MatrixOperand(flat, rows, cols);
+        return new Operand(flat, rows, cols);
     }
 
-    public static MatrixOperand OfZero(int rows, int cols)
+    public static Operand OfZero(int rows, int cols)
         => new(new double[rows * cols], rows, cols);
 
-    public static MatrixOperand OfRandom(int rows, int cols, double scale = 0.1)
+    public static Operand OfRandom(int rows, int cols, double scale = 0.1)
     {
         var rng = new Random();
         var data = new double[rows * cols];
         for (var i = 0; i < rows * cols; i++)
             data[i] = (rng.NextDouble() * 2 - 1) * scale;
-        return new MatrixOperand(data, rows, cols);
+        return new Operand(data, rows, cols);
     }
 
     // Allows leaf nodes to register a custom backward (e.g. embedding bridge)
@@ -63,7 +63,7 @@ public class MatrixOperand
         => _backward = () => backward(Gradient);
 
     // [m,k] x [k,n] -> [m,n]
-    public MatrixOperand MatMul(MatrixOperand w)
+    public Operand MatMul(Operand w)
     {
         var m = _rows;
         var k = _cols;
@@ -79,7 +79,7 @@ public class MatrixOperand
                     new ReadOnlySpan<double>(outFlat, i * n, n),
                     new Span<double>(outFlat, i * n, n));
 
-        var result = new MatrixOperand(outFlat, m, n, (this, w));
+        var result = new Operand(outFlat, m, n, (this, w));
         var aData = Data;
         var wData = w.Data;
         var aGrad = Gradient;
@@ -108,7 +108,7 @@ public class MatrixOperand
     }
 
     // [m,n] + [1,n] broadcast -> [m,n]
-    public MatrixOperand AddBias(MatrixOperand b)
+    public Operand AddBias(Operand b)
     {
         var m = _rows;
         var n = _cols;
@@ -117,7 +117,7 @@ public class MatrixOperand
             for (var j = 0; j < n; j++)
                 outFlat[i * n + j] = Data[i * n + j] + b.Data[j];
 
-        var result = new MatrixOperand(outFlat, m, n, (this, b));
+        var result = new Operand(outFlat, m, n, (this, b));
         var aGrad = Gradient;
         var bGrad = b.Gradient;
         var dOut = result.Gradient;
@@ -135,14 +135,14 @@ public class MatrixOperand
     }
 
     // elementwise tanh
-    public MatrixOperand Tanh()
+    public Operand Tanh()
     {
         var len = _rows * _cols;
         var outFlat = new double[len];
         for (var i = 0; i < len; i++)
             outFlat[i] = Math.Tanh(Data[i]);
 
-        var result = new MatrixOperand(outFlat, _rows, _cols, (this, null));
+        var result = new Operand(outFlat, _rows, _cols, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
@@ -155,7 +155,7 @@ public class MatrixOperand
     }
 
     // per-row stable softmax
-    public MatrixOperand Softmax()
+    public Operand Softmax()
     {
         var m = _rows;
         var n = _cols;
@@ -176,7 +176,7 @@ public class MatrixOperand
                 outFlat[rowStart + j] /= sum;
         }
 
-        var result = new MatrixOperand(outFlat, m, n, (this, null));
+        var result = new Operand(outFlat, m, n, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
@@ -196,7 +196,7 @@ public class MatrixOperand
     }
 
     // Mean NLL over all rows: loss = -mean_i( log(Data[i, targets[i]]) )  ->  [1,1]
-    public MatrixOperand NLL(int[] targets)
+    public Operand NLL(int[] targets)
     {
         var m = _rows;
         var n = _cols;
@@ -205,7 +205,7 @@ public class MatrixOperand
             total += -Math.Log(Data[i * n + targets[i]] + 1e-10);
         var loss = total / m;
 
-        var result = new MatrixOperand(new double[] { loss }, 1, 1, (this, null));
+        var result = new Operand(new double[] { loss }, 1, 1, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
@@ -218,11 +218,11 @@ public class MatrixOperand
     }
 
     // -log(Data[0, targetCol])  ->  [1,1]
-    public MatrixOperand NLL(int targetCol)
+    public Operand NLL(int targetCol)
     {
         var p = Data[targetCol];
         var loss = -Math.Log(p + 1e-10);
-        var result = new MatrixOperand(new double[] { loss }, 1, 1, (this, null));
+        var result = new Operand(new double[] { loss }, 1, 1, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
@@ -234,13 +234,13 @@ public class MatrixOperand
     }
 
     // Sum all elements -> [1,1]
-    public MatrixOperand Sum()
+    public Operand Sum()
     {
         var total = 0.0;
         var len = _rows * _cols;
         for (var i = 0; i < len; i++) total += Data[i];
 
-        var result = new MatrixOperand(new double[] { total }, 1, 1, (this, null));
+        var result = new Operand(new double[] { total }, 1, 1, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
@@ -273,11 +273,11 @@ public class MatrixOperand
             Data[i] -= scale * Gradient[i];
     }
 
-    private List<MatrixOperand> BuildTopological()
+    private List<Operand> BuildTopological()
     {
-        var visited = new HashSet<MatrixOperand>();
-        var ordered = new List<MatrixOperand>();
-        var stack = new Stack<MatrixOperand>();
+        var visited = new HashSet<Operand>();
+        var ordered = new List<Operand>();
+        var stack = new Stack<Operand>();
         stack.Push(this);
 
         while (stack.Count > 0)
@@ -298,8 +298,8 @@ public class MatrixOperand
         return ordered;
     }
 
-    private static bool TryPushUnvisited(Stack<MatrixOperand> stack, HashSet<MatrixOperand> visited,
-        MatrixOperand node, ref bool pushed)
+    private static bool TryPushUnvisited(Stack<Operand> stack, HashSet<Operand> visited,
+        Operand node, ref bool pushed)
     {
         if (node != null && !visited.Contains(node))
         {

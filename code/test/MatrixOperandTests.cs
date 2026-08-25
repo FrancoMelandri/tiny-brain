@@ -8,8 +8,8 @@ public class MatrixOperandTests
     [Test]
     public void MatMul_Forward_Correct()
     {
-        var a = MatrixOperand.Of(new double[,] { { 1, 2, 3 }, { 4, 5, 6 } });
-        var w = MatrixOperand.Of(new double[,] { { 7, 8 }, { 9, 10 }, { 11, 12 } });
+        var a = Operand.Of(new double[,] { { 1, 2, 3 }, { 4, 5, 6 } });
+        var w = Operand.Of(new double[,] { { 7, 8 }, { 9, 10 }, { 11, 12 } });
         var c = a.MatMul(w);
 
         c.Rows.ShouldBe(2);
@@ -23,8 +23,8 @@ public class MatrixOperandTests
     [Test]
     public void MatMul_Backward_Correct()
     {
-        var a = MatrixOperand.Of(new double[,] { { 1.0, 2.0 } });
-        var w = MatrixOperand.Of(new double[,] { { 3.0, 4.0 }, { 5.0, 6.0 } });
+        var a = Operand.Of(new double[,] { { 1.0, 2.0 } });
+        var w = Operand.Of(new double[,] { { 3.0, 4.0 }, { 5.0, 6.0 } });
         var loss = a.MatMul(w).Sum();
         loss.Backpropagation();
 
@@ -41,8 +41,8 @@ public class MatrixOperandTests
     [Test]
     public void AddBias_Backward_Correct()
     {
-        var a = MatrixOperand.Of(new double[,] { { 1.0, 2.0 }, { 3.0, 4.0 } });
-        var b = MatrixOperand.Of(new double[,] { { 10.0, 20.0 } });
+        var a = Operand.Of(new double[,] { { 1.0, 2.0 }, { 3.0, 4.0 } });
+        var b = Operand.Of(new double[,] { { 10.0, 20.0 } });
         var c = a.AddBias(b);
 
         c.Data[0 * 2 + 0].ShouldBe(11.0);
@@ -59,7 +59,7 @@ public class MatrixOperandTests
     [Test]
     public void Tanh_Forward_Backward_Correct()
     {
-        var a = MatrixOperand.Of(new double[,] { { 0.0, 1.0 } });
+        var a = Operand.Of(new double[,] { { 0.0, 1.0 } });
         var t = a.Tanh();
 
         t.Data[0].ShouldBe(0.0, tolerance: 1e-10);
@@ -74,7 +74,7 @@ public class MatrixOperandTests
     [Test]
     public void Softmax_Rows_Sum_To_One()
     {
-        var a = MatrixOperand.Of(new double[,] { { 1.0, 2.0, 3.0 }, { 0.5, -1.0, 2.0 } });
+        var a = Operand.Of(new double[,] { { 1.0, 2.0, 3.0 }, { 0.5, -1.0, 2.0 } });
         var s = a.Softmax();
 
         var row0 = s.Data[0] + s.Data[1] + s.Data[2];
@@ -88,7 +88,7 @@ public class MatrixOperandTests
     [Test]
     public void NLL_Loss_And_Gradient()
     {
-        var probs = MatrixOperand.Of(new double[,] { { 0.1, 0.7, 0.2 } });
+        var probs = Operand.Of(new double[,] { { 0.1, 0.7, 0.2 } });
         var loss = probs.NLL(1);
 
         loss.Data[0].ShouldBe(-Math.Log(0.7 + 1e-10), tolerance: 1e-8);
@@ -102,9 +102,9 @@ public class MatrixOperandTests
     [Test]
     public void MatMul_AddBias_Softmax_NLL_Chain()
     {
-        var input = MatrixOperand.Of(new double[,] { { 1.0, 1.0 } });
-        var w     = MatrixOperand.Of(new double[,] { { 0.1, 0.2, 0.3 }, { 0.4, 0.5, 0.6 } });
-        var b     = MatrixOperand.Of(new double[,] { { 0.0, 0.0, 0.0 } });
+        var input = Operand.Of(new double[,] { { 1.0, 1.0 } });
+        var w     = Operand.Of(new double[,] { { 0.1, 0.2, 0.3 }, { 0.4, 0.5, 0.6 } });
+        var b     = Operand.Of(new double[,] { { 0.0, 0.0, 0.0 } });
 
         var loss = input.MatMul(w).AddBias(b).Softmax().NLL(0);
         loss.Backpropagation();

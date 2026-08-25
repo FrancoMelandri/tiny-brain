@@ -97,13 +97,8 @@ if (shouldTrain)
 
             loss.Backpropagation();
 
-            var gn = Math.Sqrt(
-                model.EmbeddingGradientNormSquared() +
-                model.ParameterMatrices.Sum(m => m.GradientNormSquared()));
+            var gn = Math.Sqrt(model.ParameterMatrices.Sum(m => m.GradientNormSquared()));
             var clip = gn > 1.0 ? 1.0 / gn : 1.0;
-
-            foreach (var p in model.EmbeddingParameters)
-                p.Data -= LearningRate * p.Gradient * clip;
             foreach (var m in model.ParameterMatrices)
                 m.ApplyGradients(LearningRate, clip);
 
