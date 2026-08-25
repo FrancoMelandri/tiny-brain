@@ -1,28 +1,32 @@
-﻿using System.Linq;
-using TinyFp;
-using TinyFp.Extensions;
+using System;
 
 namespace TinyBrain;
 
-public class Layer(string id,
-    int numberOfInputs,
-    int numberOfNeurons,
-    ActivationType activationType)
+public class Layer
 {
-    public string Id { get; } = id;
+    public Operand Weights { get; }
+    public Operand Bias { get; }
+    public ActivationType ActivationType { get; }
 
-    public Neuron[] Neurons { get; } = new Neuron[numberOfNeurons]
-        .Select((_, index) => new Neuron($"{id}-{index}", numberOfInputs, activationType))
-        .ToArray();
+    public Layer(int inputSize, int outputSize, ActivationType activationType)
+    {
+        var scale = Math.Sqrt(2.0 / inputSize);
+        Weights = Operand.OfRandom(inputSize, outputSize, scale);
+        Bias = Operand.OfZero(1, outputSize);
+        ActivationType = activationType;
+    }
 
-    public Operand[] Parameters => Neurons
-            .SelectMany(_ => _.Parameters)
-            .ToArray();
+    public Operand[] ParameterMatrices => [Weights, Bias];
 
-    private Unit ZeroGradient()
-        => Parameters.ForEach(_ => _.Gradient = 0);
+    public void ZeroGradients()
+    {
+        Weights.ZeroGradient();
+        Bias.ZeroGradient();
+    }
 
-    public Operand[] Forward(Operand[] inputs)
-        => ZeroGradient()
-            .Map(_ => Neurons.Select(neuron => neuron.Forward(inputs)).ToArray());
+    public Operand Forward(Operand input)
+    {
+        var z = input.MatMul(Weights).AddBias(Bias);
+        return ActivationType == ActivationType.Tanh ? z.Tanh() : z;
+    }
 }

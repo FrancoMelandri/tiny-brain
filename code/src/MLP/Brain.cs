@@ -1,39 +1,31 @@
 ﻿using System.Linq;
-using TinyFp;
-using TinyFp.Extensions;
-using static TinyBrain.Constants;
 
 namespace TinyBrain;
 
 public class Brain
 {
-    public string Id { get;  }
+    public string Id { get; }
     public Layer[] Layers { get; }
 
-    public Brain(string id,
-        int numberOfInputs,
-        int[] layers,
-        ActivationType activationType = ActivationType.Tanh)
+    public Brain(string id, int inputSize, int[] layerSizes, ActivationType activationType = ActivationType.Tanh)
     {
         Id = id;
-        int[] totals = [numberOfInputs];
-        totals = [..totals, ..layers];
-        Layers = new Layer[totals.Length]
-            .SkipLast(ONE)
-            .Select((input, index) => new Layer($"{index}", totals[index], totals[index + 1], activationType))
-            .ToArray();
+        int[] sizes = [inputSize, ..layerSizes];
+        Layers = new Layer[sizes.Length - 1];
+        for (var i = 0; i < Layers.Length; i++)
+            Layers[i] = new Layer(sizes[i], sizes[i + 1], activationType);
     }
 
-    public Operand[] Parameters => Layers
-        .SelectMany(_ => _.Parameters)
-        .ToArray();
+    public Operand[] ParameterMatrices => Layers.SelectMany(l => l.ParameterMatrices).ToArray();
 
-    private Unit ZeroGradient()
-        => Parameters.ForEach(_ => _.Gradient = 0);
+    public Operand Forward(Operand input)
+    {
+        foreach (var layer in Layers)
+            layer.ZeroGradients();
 
-    public Operand[] Forward(Operand[] inputs)
-        => ZeroGradient()
-            .Map(_ => Layers
-                            .Fold(inputs,
-                                (a, i) => i.Forward(a)));
+        var current = input;
+        foreach (var layer in Layers)
+            current = layer.Forward(current);
+        return current;
+    }
 }

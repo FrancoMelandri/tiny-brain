@@ -1,11 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Globalization;
+using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
-using System.Text;
-using System.Threading.Tasks;
 using TinyBrain;
 using TinyFp.Extensions;
 
@@ -13,46 +10,40 @@ namespace biagram;
 
 public class NeuralNetworks
 {
-    private IEnumerable<(char Char1, char Char2)> _biagrams;
-    private int[] _xs = Array.Empty<int>();
-    private int[] _ys = Array.Empty<int>();
     private readonly Brain _brain;
+
+    int CtoI(char c) => c - '`';
+    char ItoC(int i) => (char)(i + '`');
 
     public NeuralNetworks(string[] words)
     {
         _brain = new Brain("biagram", 27, [27], ActivationType.None);
-        _biagrams = EvaluateBiagrams(words);
     }
-    
-    //
-    // convert character to index and vice versa
-    int CtoI(char c) => c - '`';
-    char ItoC(int i) => (char)(i + '`');
-    
-    IEnumerable<(char Char1, char Char2)> EvaluateBiagrams(string[] words) =>
-        words
-            .Select(_ => $"`{_}`")
-            .Select(
-                w =>
-                    w.SkipLast(1)
-                        .Select((c, index) => (Char1: c, Char2: w[index + 1]))
-            )
-            .Fold(new List<(char, char)>(),
-                (a, i) => a.Tee(_ => _.AddRange(i.Select(_ => (_.Char1, _.Char2)))));
 
     public void Initialize()
     {
-        if (!System.IO.File.Exists("parameters.txt"))
-            return;
-        var lines = System.IO.File.ReadAllLines("parameters.txt");
-        for (var index = 0; index < lines.Length; index++)
-            _brain.Parameters[index].Data = double.Parse(lines[index], CultureInfo.InvariantCulture);
+        if (!File.Exists("parameters.txt")) return;
+        var flat = File.ReadAllLines("parameters.txt")
+            .Select(l => double.Parse(l, CultureInfo.InvariantCulture)).ToArray();
+        FlatParameters = flat;
     }
 
-    public Operand[] Parameters => _brain.Parameters;
-    
-    //
-    // generate characters using multinomial
+    public double[] FlatParameters
+    {
+        get => _brain.ParameterMatrices.SelectMany(m => m.Data).ToArray();
+        set
+        {
+            var idx = 0;
+            foreach (var m in _brain.ParameterMatrices)
+                for (var i = 0; i < m.Data.Length; i++)
+                    m.Data[i] = value[idx++];
+        }
+    }
+
+    public Operand[] ParameterMatrices => _brain.ParameterMatrices;
+
+    public Operand Forward(Operand input) => _brain.Forward(input);
+
     public void Generate(int generations)
     {
         for (var toGenerate = 0; toGenerate < generations; toGenerate++)
@@ -62,44 +53,22 @@ public class NeuralNetworks
             var generated = new List<char>();
             while (true)
             {
-                //
-                // get the probability row
-                var xenc = SamplingUtils.OneHot([ix], 27);
-                var logits = Forward(xenc);
-                var softMax = Softmax(logits);
-                var p = softMax[0].Select(_ => _.Data).ToArray();;
-                //
-                // get next character using multinomial based on probability vector 
+                var xenc = SamplingUtils.OneHotMatrix([ix], 27);
+                var probs = _brain.Forward(xenc).Softmax();
+                var p = new double[27];
+                for (var j = 0; j < 27; j++) p[j] = probs.Data[j];
                 ix = SamplingUtils.Multinomial(p);
-
-                //
-                // in case of next character = 0 we reach the end of the generated word
-                if (ix == 0 || ++steps >= 100)
-                    break;
+                if (ix == 0 || ++steps >= 100) break;
                 generated.Add(ItoC(ix));
             }
-            var generateString = generated.Fold(string.Empty, (a, c) => a.Tee(_ => _ + c));
-            Console.WriteLine(generateString);
-        }    
+            Console.WriteLine(generated.Fold(string.Empty, (a, c) => a + c));
+        }
     }
 
-    public Operand[][] Forward(Operand[][] operands)
-        => operands
-            .Fold((Index: 0, Logits: new Operand[operands.Length][]),
-            (a, i) => 
-                (a.Index + 1, 
-                    a.Logits.Tee(_ => _[a.Index] = _brain.Forward(i))))
-            .Map(fold => fold.Logits);
-
-    public static Operand[][] Softmax(Operand[][] logits)
-        => logits.Select(row => row.Softmax()).ToArray();
-
     public void SaveParameters()
-        => System.IO.File.WriteAllText(
-            "parameters.txt",
-            _brain
-            .Parameters
-            .Fold(new StringBuilder(),
-                (a, i) => a.AppendLine(i.Data.ToString(CultureInfo.InvariantCulture)))
-                    .ToString());
+        => File.WriteAllText("parameters.txt",
+            FlatParameters
+                .Aggregate(new System.Text.StringBuilder(),
+                    (sb, v) => sb.AppendLine(v.ToString(CultureInfo.InvariantCulture)))
+                .ToString());
 }

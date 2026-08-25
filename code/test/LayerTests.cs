@@ -1,65 +1,45 @@
-using System;
-using System.Linq;
 using Shouldly;
-using TinyFp.Extensions;
 
 namespace TinyBrain.Test;
 
 public class LayerTests
 {
     [Test]
-    public void Layer_Ok()
+    public void Layer_Params()
     {
-        var layer = new Layer("test", 4, 3, ActivationType.Tanh);
-        var outs = layer.Forward([Operand.Of(1), Operand.Of(2), Operand.Of(3), Operand.Of(4)]);
-        
-        layer.Neurons.Length.ShouldBe(3);
-        layer.Neurons[0].Weights.Length.ShouldBe(4);
-        outs.ShouldNotBeEmpty();
-        outs.ForEach(o =>
-        {
-            o.Data.ShouldBeLessThanOrEqualTo(1);
-            o.Data.ShouldBeGreaterThanOrEqualTo(-1);
-        });
-        
-        layer.Parameters.Length.ShouldBe(15);
+        var layer = new Layer(4, 3, ActivationType.Tanh);
+
+        layer.Weights.Rows.ShouldBe(4);
+        layer.Weights.Cols.ShouldBe(3);
+        layer.Bias.Rows.ShouldBe(1);
+        layer.Bias.Cols.ShouldBe(3);
+        layer.ParameterMatrices.Length.ShouldBe(2);
     }
-    
+
     [Test]
-    public void Forward()
+    public void Layer_Forward_Tanh_Output_In_Range()
     {
-        var layer = new Layer("test", 3, 3, ActivationType.Tanh);
-        Operand[] operands = [Operand.Of(1), Operand.Of(2), Operand.Of(3)];
+        var layer = new Layer(4, 3, ActivationType.Tanh);
+        var input = Operand.Of(new double[,] { { 1.0, 2.0, 3.0, 4.0 } });
+        var output = layer.Forward(input);
 
-        var target = new[]
+        output.Rows.ShouldBe(1);
+        output.Cols.ShouldBe(3);
+        for (var j = 0; j < 3; j++)
         {
-            Operand.Of(1),Operand.Of(0),Operand.Of(1)
-        };
-        var o = new[]
-        {
-            Operand.Of(0),Operand.Of(0),Operand.Of(0)
-        };
-        var step = 0;
-        var loss = Operand.Of(0);
-        while(true)
-        {
-            step++;
-            
-            o = layer.Forward(operands);
-            
-            var current = o.Select((item, index) 
-                => (item - target[index]).Pow(2));
-            loss = current.Fold(Operand.Of(0),
-                    (a, i) => a + i);
-            
-            if (loss.Data < 0.00001)
-                break;
-            
-            loss.Backpropagation();
-
-            foreach (var x in layer.Parameters)
-                x.Data += -0.01 * x.Gradient;
+            output.Data[j].ShouldBeGreaterThan(-1.0);
+            output.Data[j].ShouldBeLessThan(1.0);
         }
-        Console.WriteLine($"{step} -> o = {o[0].Data} {o[1].Data} {o[2].Data} loss = {loss.Data}");
-    }    
+    }
+
+    [Test]
+    public void Layer_Forward_None_Unconstrained()
+    {
+        var layer = new Layer(2, 3, ActivationType.None);
+        var input = Operand.Of(new double[,] { { 10.0, 10.0 } });
+        var output = layer.Forward(input);
+
+        output.Rows.ShouldBe(1);
+        output.Cols.ShouldBe(3);
+    }
 }

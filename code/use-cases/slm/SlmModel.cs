@@ -16,15 +16,27 @@ public class SlmModel
         _outputBrain = new Brain("slm_o", hiddenSize, [vocabSize], ActivationType.None);
     }
 
-    public Operand[] Forward(int[] contextIndices)
+    public Operand Forward(int[] contextIndices)
     {
-        var flatEmbedding = contextIndices
-            .SelectMany(idx => _embedding.Lookup(idx))
-            .ToArray();
-        var hidden = _hiddenBrain.Forward(flatEmbedding);
+        var input = _embedding.LookupFlat(contextIndices);
+        var hidden = _hiddenBrain.Forward(input);
         return _outputBrain.Forward(hidden);
     }
 
-    public Operand[] Parameters
-        => [.._embedding.Parameters, .._hiddenBrain.Parameters, .._outputBrain.Parameters];
+    public void ZeroGradients() => _embedding.ZeroGradients();
+
+    public Operand[] ParameterMatrices
+        => [_embedding.ParameterMatrix, .._hiddenBrain.ParameterMatrices, .._outputBrain.ParameterMatrices];
+
+    public double[] FlatParameters
+    {
+        get => ParameterMatrices.SelectMany(m => m.Data).ToArray();
+        set
+        {
+            var idx = 0;
+            foreach (var m in ParameterMatrices)
+                for (var i = 0; i < m.Data.Length; i++)
+                    m.Data[i] = value[idx++];
+        }
+    }
 }

@@ -1,29 +1,32 @@
-﻿using Shouldly;
+using Shouldly;
 
 namespace TinyBrain.Test;
 
 public class BrainTests
 {
     [Test]
-    public void MPL_Ok()
+    public void Brain_Topology()
     {
-        var mpl = new Brain("test", 4, [3, 4, 1]);
-        var o = mpl.Forward([Operand.Of(1), Operand.Of(2), Operand.Of(3), Operand.Of(4)]);
-        
-        mpl.Layers.Length.ShouldBe(3);
-        mpl.Layers[0].Neurons.Length.ShouldBe(3);
-        mpl.Layers[0].Neurons[0].Weights.Length.ShouldBe(4);
-        
-        mpl.Layers[1].Neurons.Length.ShouldBe(4);
-        mpl.Layers[1].Neurons[0].Weights.Length.ShouldBe(3);
+        var brain = new Brain("test", 3, [4, 4, 1]);
 
-        mpl.Layers[2].Neurons.Length.ShouldBe(1);
-        mpl.Layers[2].Neurons[0].Weights.Length.ShouldBe(4);
-        
-        o.Length.ShouldBe(1);
-        o[0].Data.ShouldBeLessThanOrEqualTo(1);
-        o[0].Data.ShouldBeGreaterThanOrEqualTo(-1);
-        
-        mpl.Parameters.Length.ShouldBe(36);
+        brain.Layers.Length.ShouldBe(3);
+        brain.Layers[0].Weights.Rows.ShouldBe(3);
+        brain.Layers[0].Weights.Cols.ShouldBe(4);
+        brain.Layers[1].Weights.Rows.ShouldBe(4);
+        brain.Layers[1].Weights.Cols.ShouldBe(4);
+        brain.Layers[2].Weights.Rows.ShouldBe(4);
+        brain.Layers[2].Weights.Cols.ShouldBe(1);
+        brain.ParameterMatrices.Length.ShouldBe(6); // weights + bias per layer × 3 layers
+    }
+
+    [Test]
+    public void Brain_Forward_Output_Shape()
+    {
+        var brain = new Brain("test", 3, [4, 4, 1]);
+        var input = Operand.Of(new double[,] { { 1.0, 2.0, 3.0 } });
+        var output = brain.Forward(input);
+
+        output.Rows.ShouldBe(1);
+        output.Cols.ShouldBe(1);
     }
 }
