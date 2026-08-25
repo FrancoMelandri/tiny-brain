@@ -13,8 +13,8 @@ const int EmbedDim = 10;
 const int HiddenSize = 64;
 const double LearningRate = 0.01;
 const int Epochs = 30;
-const int MaxVocabSize = 500;
-const int MaxTrainStories = 2000;
+const int MaxVocabSize = 1000;
+const int MaxTrainStories = 10000;
 const int MaxValStories = 200;
 
 var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.txt");
