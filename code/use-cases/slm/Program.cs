@@ -35,12 +35,17 @@ if (File.Exists(ParamsFile))
 }
 else
 {
+    var splitIdx = (int)(trainingData.Pairs.Length * 0.9);
+    var trainPairs = trainingData.Pairs[..splitIdx];
+    var valPairs = trainingData.Pairs[splitIdx..];
+    Console.WriteLine($"Train pairs: {trainPairs.Length}  Val pairs: {valPairs.Length}");
+
     Console.WriteLine("Training...");
     for (var epoch = 0; epoch < Epochs; epoch++)
     {
         var epochLoss = 0.0;
 
-        foreach (var (ctx, target) in trainingData.Pairs)
+        foreach (var (ctx, target) in trainPairs)
         {
             var logits = model.Forward(ctx);
             var probs = logits.Softmax();
@@ -55,7 +60,12 @@ else
                 p.Data -= LearningRate * p.Gradient * clipScale;
         }
 
-        Console.WriteLine($"Epoch {epoch,3}: avg_loss={epochLoss / trainingData.Pairs.Length:F4}");
+        var valLoss = valPairs
+            .Select(pair => -Math.Log(SoftmaxProbs(model.Forward(pair.Context))[pair.Target] + 1e-10))
+            .Average();
+        var perplexity = Math.Exp(valLoss);
+
+        Console.WriteLine($"Epoch {epoch,3}: train_loss={epochLoss / trainPairs.Length:F4}  val_perplexity={perplexity:F2}");
     }
 
     File.WriteAllText(ParamsFile,
