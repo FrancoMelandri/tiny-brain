@@ -38,21 +38,22 @@ public class EmbeddingTable
     public MatrixOperand LookupFlat(int[] contextIndices)
     {
         var cols = contextIndices.Length * _embedDim;
-        var data = new double[1, cols];
+        var data = new double[cols];
         for (var ci = 0; ci < contextIndices.Length; ci++)
             for (var d = 0; d < _embedDim; d++)
-                data[0, ci * _embedDim + d] = _table[contextIndices[ci], d].Data;
+                data[ci * _embedDim + d] = _table[contextIndices[ci], d].Data;
 
         var table = _table;
         var indices = (int[])contextIndices.Clone();
         var embedDim = _embedDim;
 
-        var result = MatrixOperand.Of(data);
+        var result = MatrixOperand.Of(new double[1, cols]); // shape [1, cols]
+        Array.Copy(data, result.Data, cols);
         result.SetBackward(grad =>
         {
             for (var ci = 0; ci < indices.Length; ci++)
                 for (var d = 0; d < embedDim; d++)
-                    table[indices[ci], d].Gradient += grad[0, ci * embedDim + d];
+                    table[indices[ci], d].Gradient += grad[ci * embedDim + d];
         });
         return result;
     }

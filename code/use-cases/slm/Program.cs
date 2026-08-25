@@ -67,7 +67,7 @@ else
             var logits = model.Forward(ctx);
             var probs  = logits.Softmax();
             var loss   = probs.NLL(target);
-            epochLoss += loss.Data[0, 0];
+            epochLoss += loss.Data[0];
 
             loss.Backpropagation();
 
@@ -130,15 +130,15 @@ for (var i = 0; i < 20; i++)
 Console.WriteLine(string.Join(" ", generated));
 
 // Untracked per-row softmax for inference (no autograd graph)
-static double[] SoftmaxRow(double[,] data)
+static double[] SoftmaxRow(double[] data)
 {
-    var n = data.GetLength(1);
+    var n = data.Length;
     var max = double.NegativeInfinity;
     for (var j = 0; j < n; j++)
-        if (data[0, j] > max) max = data[0, j];
+        if (data[j] > max) max = data[j];
     var exps = new double[n];
     var sum = 0.0;
-    for (var j = 0; j < n; j++) { exps[j] = Math.Exp(data[0, j] - max); sum += exps[j]; }
+    for (var j = 0; j < n; j++) { exps[j] = Math.Exp(data[j] - max); sum += exps[j]; }
     for (var j = 0; j < n; j++) exps[j] /= sum;
     return exps;
 }

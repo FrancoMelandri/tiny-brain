@@ -40,11 +40,7 @@ public class SlmModel
             var emb = _embedding.Parameters.Select(p => p.Data);
             var mats = ParameterMatrices.SelectMany(m =>
             {
-                var vals = new double[m.Rows * m.Cols];
-                for (var i = 0; i < m.Rows; i++)
-                    for (var j = 0; j < m.Cols; j++)
-                        vals[i * m.Cols + j] = m.Data[i, j];
-                return vals;
+                return m.Data;
             });
             return [..emb, ..mats];
         }
@@ -54,9 +50,8 @@ public class SlmModel
             foreach (var p in _embedding.Parameters)
                 p.Data = value[idx++];
             foreach (var m in ParameterMatrices)
-                for (var i = 0; i < m.Rows; i++)
-                    for (var j = 0; j < m.Cols; j++)
-                        m.Data[i, j] = value[idx++];
+                for (var i = 0; i < m.Data.Length; i++)
+                    m.Data[i] = value[idx++];
         }
     }
 }
