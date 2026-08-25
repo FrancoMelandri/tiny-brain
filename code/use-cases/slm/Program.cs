@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -12,16 +13,30 @@ const int EmbedDim = 10;
 const int HiddenSize = 64;
 const double LearningRate = 0.01;
 const int Epochs = 30;
-const int MaxVocabSize = 100;
+const int MaxVocabSize = 500;
+const int MaxTrainStories = 2000;
+const int MaxValStories = 200;
+
 var ParamsFile = Path.Combine(AppContext.BaseDirectory, "parameters.txt");
 
-var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "corpus.txt"));
-var tokenizer = new Tokenizer(text, MaxVocabSize);
-var tokens = tokenizer.Encode(text);
-Console.WriteLine($"Vocab size: {tokenizer.VocabSize}  Tokens: {tokens.Length}");
+// Datasets are read directly from source — too large to copy to output dir
+var datasetsDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../datasets"));
+var trainCsv = Path.Combine(datasetsDir, "train.csv");
+var valCsv = Path.Combine(datasetsDir, "validation.csv");
 
-var trainingData = new TrainingData(tokens, ContextSize);
-Console.WriteLine($"Training pairs: {trainingData.Pairs.Length}");
+var trainText = DatasetLoader.LoadText(trainCsv, MaxTrainStories);
+var valText = DatasetLoader.LoadText(valCsv, MaxValStories);
+
+var tokenizer = new Tokenizer(trainText, MaxVocabSize);
+Console.WriteLine($"Vocab size: {tokenizer.VocabSize}");
+
+var trainTokens = tokenizer.Encode(trainText);
+var valTokens = tokenizer.Encode(valText);
+Console.WriteLine($"Train tokens: {trainTokens.Length}  Val tokens: {valTokens.Length}");
+
+var trainData = new TrainingData(trainTokens, ContextSize);
+var valData = new TrainingData(valTokens, ContextSize);
+Console.WriteLine($"Train pairs: {trainData.Pairs.Length}  Val pairs: {valData.Pairs.Length}");
 
 var model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, HiddenSize);
 
@@ -35,17 +50,19 @@ if (File.Exists(ParamsFile))
 }
 else
 {
-    var splitIdx = (int)(trainingData.Pairs.Length * 0.9);
-    var trainPairs = trainingData.Pairs[..splitIdx];
-    var valPairs = trainingData.Pairs[splitIdx..];
-    Console.WriteLine($"Train pairs: {trainPairs.Length}  Val pairs: {valPairs.Length}");
-
-    Console.WriteLine("Training...");
+    Console.WriteLine($"Training Parameters: {model.Parameters.Length} data: {trainData.Pairs.Length}");
     for (var epoch = 0; epoch < Epochs; epoch++)
     {
-        var epochLoss = 0.0;
+        var sw = new Stopwatch();
+        sw.Start();
+        Console.WriteLine($"Epoch {epoch,3}");
 
-        foreach (var (ctx, target) in trainPairs)
+        var epochLoss = 0.0;
+        var total = trainData.Pairs.Length;
+        var updateEvery = Math.Max(1, total / 10000);
+        var pairIdx = 0;
+
+        foreach (var (ctx, target) in trainData.Pairs)
         {
             var logits = model.Forward(ctx);
             var probs = logits.Softmax();
@@ -58,14 +75,25 @@ else
             var clipScale = gradNorm > 1.0 ? 1.0 / gradNorm : 1.0;
             foreach (var p in model.Parameters)
                 p.Data -= LearningRate * p.Gradient * clipScale;
-        }
 
-        var valLoss = valPairs
+            pairIdx++;
+            if (pairIdx % updateEvery == 0 || pairIdx == total || pairIdx == 1)
+            {
+                var pct = (double)pairIdx / total;
+                var filled = (int)(pct * 40);
+                var bar = new string('█', filled) + new string('░', 40 - filled);
+                Console.Write($"\r  [{bar}] {pct:P0} ({pairIdx}/{total})");
+            }
+        }
+        Console.WriteLine();
+
+        var valLoss = valData.Pairs
             .Select(pair => -Math.Log(SoftmaxProbs(model.Forward(pair.Context))[pair.Target] + 1e-10))
             .Average();
         var perplexity = Math.Exp(valLoss);
+        sw.Stop();
 
-        Console.WriteLine($"Epoch {epoch,3}: train_loss={epochLoss / trainPairs.Length:F4}  val_perplexity={perplexity:F2}");
+        Console.WriteLine($"Epoch {epoch,3}: time: {sw.Elapsed} train_loss={epochLoss / trainData.Pairs.Length:F4}  val_perplexity={perplexity:F2}");
     }
 
     File.WriteAllText(ParamsFile,

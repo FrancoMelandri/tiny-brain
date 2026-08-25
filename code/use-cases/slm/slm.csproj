@@ -9,10 +9,5 @@
     <ProjectReference Include="..\..\src\tiny-brain.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Update="corpus.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
 
 </Project>
