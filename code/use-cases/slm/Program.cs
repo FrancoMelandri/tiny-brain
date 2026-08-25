@@ -17,7 +17,23 @@ const int MaxVocabSize = 500;
 const int MaxTrainStories = 2000;
 const int MaxValStories = 200;
 
-var ParamsFile = Path.Combine(AppContext.BaseDirectory, "parameters.txt");
+var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.txt");
+var TrainingsFile = Path.Combine(AppContext.BaseDirectory, "trainings.txt");
+
+// Parse --epoch N from CLI args
+int? epochOverride = null;
+for (var i = 0; i < args.Length - 1; i++)
+    if (args[i] == "--epoch" && int.TryParse(args[i + 1], out var n))
+        epochOverride = n;
+
+// Derive epoch start from previous training runs recorded in trainings.txt
+var epochStart = 0;
+if (File.Exists(Path.Combine(AppContext.BaseDirectory, "trainings.txt")))
+    foreach (var line in File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "trainings.txt")))
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(line, @"epochs=(\d+)");
+        if (m.Success) epochStart += int.Parse(m.Groups[1].Value);
+    }
 
 // Datasets are read directly from source — too large to copy to output dir
 var datasetsDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../datasets"));
@@ -40,20 +56,30 @@ Console.WriteLine($"Train pairs: {trainData.Pairs.Length}  Val pairs: {valData.P
 
 var model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, HiddenSize);
 
+// Load checkpoint if available (always, so --epoch resumes from existing params)
 if (File.Exists(ParamsFile))
 {
     Console.WriteLine("Loading saved parameters...");
-    var lines = File.ReadAllLines(ParamsFile);
-    var flat = lines.Select(l => double.Parse(l, CultureInfo.InvariantCulture)).ToArray();
+    var flat = File.ReadAllLines(ParamsFile)
+        .Select(l => double.Parse(l, CultureInfo.InvariantCulture)).ToArray();
     model.FlatParameters = flat;
 }
-else
+
+var shouldTrain = epochOverride.HasValue || !File.Exists(ParamsFile);
+var epochsToRun = epochOverride ?? Epochs;
+
+if (shouldTrain)
 {
+    var finalTrainLoss = 0.0;
+    var finalPerplexity = 0.0;
+    var totalElapsed = TimeSpan.Zero;
+
     Console.WriteLine($"Training — Parameters: {model.FlatParameters.Length}  Pairs: {trainData.Pairs.Length}");
-    for (var epoch = 0; epoch < Epochs; epoch++)
+    for (var epoch = 0; epoch < epochsToRun; epoch++)
     {
+        var displayEpoch = epochStart + epoch;
         var sw = Stopwatch.StartNew();
-        Console.WriteLine($"Epoch {epoch,3}");
+        Console.WriteLine($"Epoch {displayEpoch,3}");
 
         var epochLoss = 0.0;
         var total = trainData.Pairs.Length;
@@ -98,7 +124,11 @@ else
         var perplexity = Math.Exp(valLoss);
         sw.Stop();
 
-        Console.WriteLine($"Epoch {epoch,3}: time={sw.Elapsed}  train_loss={epochLoss / trainData.Pairs.Length:F4}  val_perplexity={perplexity:F2}");
+        finalTrainLoss = epochLoss / trainData.Pairs.Length;
+        finalPerplexity = perplexity;
+        totalElapsed += sw.Elapsed;
+
+        Console.WriteLine($"Epoch {displayEpoch,3}: time={sw.Elapsed}  train_loss={finalTrainLoss:F4}  val_perplexity={finalPerplexity:F2}");
     }
 
     File.WriteAllText(ParamsFile,
@@ -107,6 +137,12 @@ else
                 (sb, v) => sb.AppendLine(v.ToString(CultureInfo.InvariantCulture)))
             .ToString());
     Console.WriteLine("Parameters saved.");
+
+    var record = $"{DateTime.Now:yyyy-MM-ddTHH:mm:ss}  epochs={epochsToRun}" +
+                 $"  train_loss={finalTrainLoss:F4}  val_perplexity={finalPerplexity:F2}" +
+                 $"  elapsed={totalElapsed:hh\\:mm\\:ss}";
+    File.AppendAllText(TrainingsFile, record + Environment.NewLine);
+    Console.WriteLine($"Training log: {record}");
 }
 
 Console.WriteLine("\nGenerating text (20 words):");
