@@ -63,6 +63,8 @@ The library depends on `tiny-fp` (functional primitives: `Option`, `Unit`, `Map`
 
 `code/use-cases/slm/` implements a word-level N-gram Small Language Model (Bengio 2003 style). It adds an `EmbeddingTable` (trainable `Operand[vocabSize, embedDim]` lookup) on top of two chained `Brain` instances: a hidden layer (`ActivationType.Tanh`) and an output layer (`ActivationType.None`). A `Tokenizer` builds a top-`MaxVocabSize` (default 100) word vocabulary from `corpus.txt`. Training uses online SGD with gradient-norm clipping (threshold 1.0) and a numerically stable tracked softmax (denominator is an `Operand`, not a plain `double` — required for correct cross-entropy gradients). Parameters are saved/loaded to `parameters.txt`.
 
+`SlmModel` uses two separate `Brain` instances because `Brain` applies a single `ActivationType` uniformly across all its layers, but the SLM architecture requires two different activations: `Tanh` in the hidden layer (non-linearity to learn context-word interactions) and `None` on the output layer (raw logits fed into softmax + cross-entropy). Chaining `_hiddenBrain` → `_outputBrain` is the natural way to express that asymmetry without changing the `Brain` API.
+
 `code/use-cases/playground/` is a scratch area for manual experiments.
 
 ### Test structure
