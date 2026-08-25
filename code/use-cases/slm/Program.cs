@@ -44,17 +44,15 @@ if (File.Exists(ParamsFile))
 {
     Console.WriteLine("Loading saved parameters...");
     var lines = File.ReadAllLines(ParamsFile);
-    var parameters = model.Parameters;
-    for (var i = 0; i < Math.Min(lines.Length, parameters.Length); i++)
-        parameters[i].Data = double.Parse(lines[i], CultureInfo.InvariantCulture);
+    var flat = lines.Select(l => double.Parse(l, CultureInfo.InvariantCulture)).ToArray();
+    model.FlatParameters = flat;
 }
 else
 {
-    Console.WriteLine($"Training Parameters: {model.Parameters.Length} data: {trainData.Pairs.Length}");
+    Console.WriteLine($"Training — Parameters: {model.FlatParameters.Length}  Pairs: {trainData.Pairs.Length}");
     for (var epoch = 0; epoch < Epochs; epoch++)
     {
-        var sw = new Stopwatch();
-        sw.Start();
+        var sw = Stopwatch.StartNew();
         Console.WriteLine($"Epoch {epoch,3}");
 
         var epochLoss = 0.0;
@@ -64,17 +62,24 @@ else
 
         foreach (var (ctx, target) in trainData.Pairs)
         {
+            model.ZeroGradients();
+
             var logits = model.Forward(ctx);
-            var probs = logits.Softmax();
-            var loss = Operand.Of(0) - probs[target].Log();
-            epochLoss += loss.Data;
+            var probs  = logits.Softmax();
+            var loss   = probs.NLL(target);
+            epochLoss += loss.Data[0, 0];
 
             loss.Backpropagation();
 
-            var gradNorm = Math.Sqrt(model.Parameters.Sum(p => p.Gradient * p.Gradient));
-            var clipScale = gradNorm > 1.0 ? 1.0 / gradNorm : 1.0;
-            foreach (var p in model.Parameters)
-                p.Data -= LearningRate * p.Gradient * clipScale;
+            var gn = Math.Sqrt(
+                model.EmbeddingGradientNormSquared() +
+                model.ParameterMatrices.Sum(m => m.GradientNormSquared()));
+            var clip = gn > 1.0 ? 1.0 / gn : 1.0;
+
+            foreach (var p in model.EmbeddingParameters)
+                p.Data -= LearningRate * p.Gradient * clip;
+            foreach (var m in model.ParameterMatrices)
+                m.ApplyGradients(LearningRate, clip);
 
             pairIdx++;
             if (pairIdx % updateEvery == 0 || pairIdx == total || pairIdx == 1)
@@ -88,18 +93,18 @@ else
         Console.WriteLine();
 
         var valLoss = valData.Pairs
-            .Select(pair => -Math.Log(SoftmaxProbs(model.Forward(pair.Context))[pair.Target] + 1e-10))
+            .Select(pair => -Math.Log(SoftmaxRow(model.Forward(pair.Context).Data)[pair.Target] + 1e-10))
             .Average();
         var perplexity = Math.Exp(valLoss);
         sw.Stop();
 
-        Console.WriteLine($"Epoch {epoch,3}: time: {sw.Elapsed} train_loss={epochLoss / trainData.Pairs.Length:F4}  val_perplexity={perplexity:F2}");
+        Console.WriteLine($"Epoch {epoch,3}: time={sw.Elapsed}  train_loss={epochLoss / trainData.Pairs.Length:F4}  val_perplexity={perplexity:F2}");
     }
 
     File.WriteAllText(ParamsFile,
-        model.Parameters
+        model.FlatParameters
             .Aggregate(new StringBuilder(),
-                (sb, p) => sb.AppendLine(p.Data.ToString(CultureInfo.InvariantCulture)))
+                (sb, v) => sb.AppendLine(v.ToString(CultureInfo.InvariantCulture)))
             .ToString());
     Console.WriteLine("Parameters saved.");
 }
@@ -112,7 +117,7 @@ var generated = new List<string>();
 for (var i = 0; i < 20; i++)
 {
     var logits = model.Forward(genContext);
-    var probs = SoftmaxProbs(logits);
+    var probs = SoftmaxRow(logits.Data);
     var next = Multinomial(probs);
     if (next == Tokenizer.EosIdx) break;
     generated.Add(tokenizer.Decode([next]));
@@ -124,13 +129,18 @@ for (var i = 0; i < 20; i++)
 
 Console.WriteLine(string.Join(" ", generated));
 
-// Untracked softmax for generation (no Operand graph created)
-static double[] SoftmaxProbs(Operand[] logits)
+// Untracked per-row softmax for inference (no autograd graph)
+static double[] SoftmaxRow(double[,] data)
 {
-    var maxLogit = logits.Max(l => l.Data);
-    var exps = logits.Select(l => Math.Exp(l.Data - maxLogit)).ToArray();
-    var sum = exps.Sum();
-    return exps.Select(e => e / sum).ToArray();
+    var n = data.GetLength(1);
+    var max = double.NegativeInfinity;
+    for (var j = 0; j < n; j++)
+        if (data[0, j] > max) max = data[0, j];
+    var exps = new double[n];
+    var sum = 0.0;
+    for (var j = 0; j < n; j++) { exps[j] = Math.Exp(data[0, j] - max); sum += exps[j]; }
+    for (var j = 0; j < n; j++) exps[j] /= sum;
+    return exps;
 }
 
 static int Multinomial(double[] probs)

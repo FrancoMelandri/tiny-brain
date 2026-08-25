@@ -33,4 +33,43 @@ public class EmbeddingTable
         => Enumerable.Range(0, _vocabSize)
             .SelectMany(i => Enumerable.Range(0, _embedDim).Select(j => _table[i, j]))
             .ToArray();
+
+    // Returns MatrixOperand [1, contextSize*embedDim]; backward writes gradients back to _table entries
+    public MatrixOperand LookupFlat(int[] contextIndices)
+    {
+        var cols = contextIndices.Length * _embedDim;
+        var data = new double[1, cols];
+        for (var ci = 0; ci < contextIndices.Length; ci++)
+            for (var d = 0; d < _embedDim; d++)
+                data[0, ci * _embedDim + d] = _table[contextIndices[ci], d].Data;
+
+        var table = _table;
+        var indices = (int[])contextIndices.Clone();
+        var embedDim = _embedDim;
+
+        var result = MatrixOperand.Of(data);
+        result.SetBackward(grad =>
+        {
+            for (var ci = 0; ci < indices.Length; ci++)
+                for (var d = 0; d < embedDim; d++)
+                    table[indices[ci], d].Gradient += grad[0, ci * embedDim + d];
+        });
+        return result;
+    }
+
+    public void ZeroGradients()
+    {
+        for (var i = 0; i < _vocabSize; i++)
+            for (var j = 0; j < _embedDim; j++)
+                _table[i, j].Gradient = 0;
+    }
+
+    public double GradientNormSquared()
+    {
+        var sum = 0.0;
+        for (var i = 0; i < _vocabSize; i++)
+            for (var j = 0; j < _embedDim; j++)
+                sum += _table[i, j].Gradient * _table[i, j].Gradient;
+        return sum;
+    }
 }
