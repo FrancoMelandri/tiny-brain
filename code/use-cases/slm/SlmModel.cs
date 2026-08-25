@@ -6,27 +6,22 @@ namespace slm;
 public class SlmModel
 {
     private readonly EmbeddingTable _embedding;
-    private readonly Brain _hiddenBrain;
-    private readonly Brain _outputBrain;
+    private readonly Brain _brain;
 
     public SlmModel(int vocabSize, int contextSize, int embedDim, int hiddenSize)
     {
         _embedding = new EmbeddingTable(vocabSize, embedDim);
-        _hiddenBrain = new Brain("slm_h", contextSize * embedDim, [hiddenSize], ActivationType.Tanh);
-        _outputBrain = new Brain("slm_o", hiddenSize, [vocabSize], ActivationType.None);
+        _brain = new Brain("slm", contextSize * embedDim, [hiddenSize, vocabSize],
+                           [ActivationType.Tanh, ActivationType.None]);
     }
 
     public Operand Forward(int[] contextIndices)
-    {
-        var input = _embedding.LookupFlat(contextIndices);
-        var hidden = _hiddenBrain.Forward(input);
-        return _outputBrain.Forward(hidden);
-    }
+        => _brain.Forward(_embedding.LookupFlat(contextIndices));
 
     public void ZeroGradients() => _embedding.ZeroGradients();
 
     public Operand[] ParameterMatrices
-        => [_embedding.ParameterMatrix, .._hiddenBrain.ParameterMatrices, .._outputBrain.ParameterMatrices];
+        => [_embedding.ParameterMatrix, .._brain.ParameterMatrices];
 
     public double[] FlatParameters
     {

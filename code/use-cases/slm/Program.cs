@@ -43,8 +43,10 @@ var valCsv = Path.Combine(datasetsDir, "validation.csv");
 var trainText = DatasetLoader.LoadText(trainCsv, MaxTrainStories);
 var valText = DatasetLoader.LoadText(valCsv, MaxValStories);
 
+var uniqueTokens = Tokenizer.SplitWords(trainText).Distinct().Count();
 var tokenizer = new Tokenizer(trainText, MaxVocabSize);
-Console.WriteLine($"Vocab size: {tokenizer.VocabSize}");
+var coverage = (double)(tokenizer.VocabSize - 3) / uniqueTokens;
+Console.WriteLine($"Unique tokens: {uniqueTokens}  Vocab size: {tokenizer.VocabSize}  Coverage: {coverage:P1}");
 
 var trainTokens = tokenizer.Encode(trainText);
 var valTokens = tokenizer.Encode(valText);
