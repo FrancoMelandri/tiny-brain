@@ -8,13 +8,13 @@ using System.Text;
 using slm;
 using TinyBrain;
 
-const int ContextSize = 3;
-const int EmbedDim = 10;
-const int HiddenSize = 64;
-const double LearningRate = 0.01;
+const int ContextSize = 50;
+const int EmbedDim = 64;
+const int HiddenSize = 128;
+const double LearningRate = 0.02;
 const int Epochs = 30;
 const int MaxVocabSize = 1000;
-const int MaxTrainStories = 10000;
+const int MaxTrainStories = 5000;
 const int MaxValStories = 200;
 
 var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.txt");
@@ -48,7 +48,8 @@ var valCsv = Path.Combine(datasetsDir, "validation.csv");
 var trainText = DatasetLoader.LoadText(trainCsv, MaxTrainStories);
 var valText = DatasetLoader.LoadText(valCsv, MaxValStories);
 
-var uniqueTokens = Tokenizer.SplitWords(trainText).Distinct().Count();
+var tokens = Tokenizer.SplitWords(trainText);
+var uniqueTokens = tokens.Distinct().Count();
 var tokenizer = new Tokenizer(trainText, MaxVocabSize);
 var coverage = (double)(tokenizer.VocabSize - 3) / uniqueTokens;
 Console.WriteLine($"Unique tokens: {uniqueTokens}  Vocab size: {tokenizer.VocabSize}  Coverage: {coverage:P1}");
