@@ -8,23 +8,28 @@ using System.Text;
 using slm;
 using TinyBrain;
 
-const int ContextSize = 3;
-const int EmbedDim = 10;
-const int HiddenSize = 64;
-const double LearningRate = 0.01;
+const int ContextSize = 50;
+const int EmbedDim = 64;
+const int HiddenSize = 128;
+const double LearningRate = 0.02;
 const int Epochs = 30;
-const int MaxVocabSize = 500;
-const int MaxTrainStories = 2000;
+const int MaxVocabSize = 1000;
+const int MaxTrainStories = 5000;
 const int MaxValStories = 200;
 
 var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.txt");
 var TrainingsFile = Path.Combine(AppContext.BaseDirectory, "trainings.txt");
 
-// Parse --epoch N from CLI args
+// Parse --epoch N and --prompt <string> from CLI args
 int? epochOverride = null;
+string promptOverride = null;
 for (var i = 0; i < args.Length - 1; i++)
+{
     if (args[i] == "--epoch" && int.TryParse(args[i + 1], out var n))
         epochOverride = n;
+    if (args[i] == "--prompt")
+        promptOverride = args[i + 1];
+}
 
 // Derive epoch start from previous training runs recorded in trainings.txt
 var epochStart = 0;
@@ -43,8 +48,11 @@ var valCsv = Path.Combine(datasetsDir, "validation.csv");
 var trainText = DatasetLoader.LoadText(trainCsv, MaxTrainStories);
 var valText = DatasetLoader.LoadText(valCsv, MaxValStories);
 
+var tokens = Tokenizer.SplitWords(trainText);
+var uniqueTokens = tokens.Distinct().Count();
 var tokenizer = new Tokenizer(trainText, MaxVocabSize);
-Console.WriteLine($"Vocab size: {tokenizer.VocabSize}");
+var coverage = (double)(tokenizer.VocabSize - 3) / uniqueTokens;
+Console.WriteLine($"Unique tokens: {uniqueTokens}  Vocab size: {tokenizer.VocabSize}  Coverage: {coverage:P1}");
 
 var trainTokens = tokenizer.Encode(trainText);
 var valTokens = tokenizer.Encode(valText);
@@ -54,7 +62,8 @@ var trainData = new TrainingData(trainTokens, ContextSize);
 var valData = new TrainingData(valTokens, ContextSize);
 Console.WriteLine($"Train pairs: {trainData.Pairs.Length}  Val pairs: {valData.Pairs.Length}");
 
-var model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, HiddenSize);
+const int DHead = EmbedDim;   // single-head: head dim == embed dim
+var model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, DHead, HiddenSize);
 
 // Load checkpoint if available (always, so --epoch resumes from existing params)
 if (File.Exists(ParamsFile))
@@ -142,7 +151,17 @@ if (shouldTrain)
 
 Console.WriteLine("\nGenerating text (20 words):");
 var genContext = new int[ContextSize];
-Array.Fill(genContext, Tokenizer.BosIdx);
+if (promptOverride != null)
+{
+    var promptTokens = tokenizer.Encode(promptOverride);
+    // left-pad with BOS if shorter than context window, take tail if longer
+    Array.Fill(genContext, Tokenizer.BosIdx);
+    var copyLen = Math.Min(promptTokens.Length, ContextSize);
+    Array.Copy(promptTokens, promptTokens.Length - copyLen, genContext, ContextSize - copyLen, copyLen);
+    Console.WriteLine($"Prompt context: [{string.Join(", ", genContext.Select(idx => tokenizer.Decode([idx])))}]");
+}
+else
+    Array.Fill(genContext, Tokenizer.BosIdx);
 var generated = new List<string>();
 
 for (var i = 0; i < 20; i++)
@@ -158,7 +177,8 @@ for (var i = 0; i < 20; i++)
     genContext = newContext;
 }
 
-Console.WriteLine(string.Join(" ", generated));
+var prefix = promptOverride != null ? promptOverride + " " : "";
+Console.WriteLine(prefix + string.Join(" ", generated));
 
 // Untracked per-row softmax for inference (no autograd graph)
 static double[] SoftmaxRow(double[] data)

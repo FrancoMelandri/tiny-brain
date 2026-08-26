@@ -37,6 +37,29 @@ public class EmbeddingTable
         return result;
     }
 
+    // Returns Operand [contextSize, embedDim] — one row per token, for attention
+    public Operand LookupSequence(int[] contextIndices)
+    {
+        var t = contextIndices.Length;
+        var data = new double[t, _embedDim];
+        for (var ci = 0; ci < t; ci++)
+            for (var d = 0; d < _embedDim; d++)
+                data[ci, d] = _table.Data[contextIndices[ci] * _embedDim + d];
+
+        var tableGrad = _table.Gradient;
+        var indices = (int[])contextIndices.Clone();
+        var embedDim = _embedDim;
+
+        var result = Operand.Of(data);
+        result.SetBackward(grad =>
+        {
+            for (var ci = 0; ci < indices.Length; ci++)
+                for (var d = 0; d < embedDim; d++)
+                    tableGrad[indices[ci] * embedDim + d] += grad[ci * embedDim + d];
+        });
+        return result;
+    }
+
     public Operand ParameterMatrix => _table;
     public void ZeroGradients() => _table.ZeroGradient();
     public double GradientNormSquared() => _table.GradientNormSquared();

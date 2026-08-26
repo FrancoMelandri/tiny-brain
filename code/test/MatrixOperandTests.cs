@@ -116,4 +116,109 @@ public class MatrixOperandTests
 
         loss.Data[0].ShouldBeGreaterThan(0);
     }
+
+    [Test]
+    public void Transpose_Forward_Correct()
+    {
+        var a = Operand.Of(new double[,] { { 1, 2, 3 }, { 4, 5, 6 } }); // [2,3]
+        var t = a.Transpose();                                             // [3,2]
+
+        t.Rows.ShouldBe(3);
+        t.Cols.ShouldBe(2);
+        t.Data[0 * 2 + 0].ShouldBe(1.0); // [0,0]
+        t.Data[0 * 2 + 1].ShouldBe(4.0); // [0,1]
+        t.Data[1 * 2 + 0].ShouldBe(2.0); // [1,0]
+        t.Data[1 * 2 + 1].ShouldBe(5.0); // [1,1]
+        t.Data[2 * 2 + 0].ShouldBe(3.0); // [2,0]
+        t.Data[2 * 2 + 1].ShouldBe(6.0); // [2,1]
+    }
+
+    [Test]
+    public void Transpose_Backward_Correct()
+    {
+        // Transpose is its own inverse: grad flows back correctly
+        var a = Operand.Of(new double[,] { { 1.0, 2.0 }, { 3.0, 4.0 } }); // [2,2]
+        a.Transpose().Sum().Backpropagation();
+
+        for (var i = 0; i < 4; i++)
+            a.Gradient[i].ShouldBe(1.0, tolerance: 1e-10);
+    }
+
+    [Test]
+    public void Scale_Forward_Backward_Correct()
+    {
+        var a = Operand.Of(new double[,] { { 1.0, 2.0 }, { 3.0, 4.0 } });
+        var s = a.Scale(0.5);
+
+        s.Data[0].ShouldBe(0.5, tolerance: 1e-10);
+        s.Data[3].ShouldBe(2.0, tolerance: 1e-10);
+
+        s.Sum().Backpropagation();
+
+        for (var i = 0; i < 4; i++)
+            a.Gradient[i].ShouldBe(0.5, tolerance: 1e-10);
+    }
+
+    [Test]
+    public void Add_Forward_Backward_Correct()
+    {
+        var a = Operand.Of(new double[,] { { 1.0, 2.0 }, { 3.0, 4.0 } });
+        var b = Operand.Of(new double[,] { { 10.0, 20.0 }, { 30.0, 40.0 } });
+        var c = a.Add(b);
+
+        c.Data[0].ShouldBe(11.0, tolerance: 1e-10);
+        c.Data[3].ShouldBe(44.0, tolerance: 1e-10);
+
+        c.Sum().Backpropagation();
+
+        for (var i = 0; i < 4; i++)
+        {
+            a.Gradient[i].ShouldBe(1.0, tolerance: 1e-10);
+            b.Gradient[i].ShouldBe(1.0, tolerance: 1e-10);
+        }
+    }
+
+    [Test]
+    public void MaskFill_Forward_Backward_Correct()
+    {
+        // upper-triangle causal mask for 2x2
+        var mask = new bool[,] { { false, true }, { false, false } };
+        var a = Operand.Of(new double[,] { { 1.0, 2.0 }, { 3.0, 4.0 } });
+        var m = a.MaskFill(mask, -1e9);
+
+        m.Data[0 * 2 + 0].ShouldBe(1.0,   tolerance: 1e-10); // not masked
+        m.Data[0 * 2 + 1].ShouldBe(-1e9,  tolerance: 1e-3);  // masked
+        m.Data[1 * 2 + 0].ShouldBe(3.0,   tolerance: 1e-10); // not masked
+        m.Data[1 * 2 + 1].ShouldBe(4.0,   tolerance: 1e-10); // not masked
+
+        m.Sum().Backpropagation();
+
+        a.Gradient[0 * 2 + 0].ShouldBe(1.0, tolerance: 1e-10); // passes through
+        a.Gradient[0 * 2 + 1].ShouldBe(0.0, tolerance: 1e-10); // masked — zero grad
+        a.Gradient[1 * 2 + 0].ShouldBe(1.0, tolerance: 1e-10);
+        a.Gradient[1 * 2 + 1].ShouldBe(1.0, tolerance: 1e-10);
+    }
+
+    [Test]
+    public void SliceRow_Forward_Backward_Correct()
+    {
+        var a = Operand.Of(new double[,] { { 1.0, 2.0, 3.0 }, { 4.0, 5.0, 6.0 } }); // [2,3]
+        var s = a.SliceRow(1);                                                          // row 1 -> [1,3]
+
+        s.Rows.ShouldBe(1);
+        s.Cols.ShouldBe(3);
+        s.Data[0].ShouldBe(4.0, tolerance: 1e-10);
+        s.Data[1].ShouldBe(5.0, tolerance: 1e-10);
+        s.Data[2].ShouldBe(6.0, tolerance: 1e-10);
+
+        s.Sum().Backpropagation();
+
+        // gradient flows only to row 1
+        a.Gradient[0].ShouldBe(0.0, tolerance: 1e-10);
+        a.Gradient[1].ShouldBe(0.0, tolerance: 1e-10);
+        a.Gradient[2].ShouldBe(0.0, tolerance: 1e-10);
+        a.Gradient[3].ShouldBe(1.0, tolerance: 1e-10);
+        a.Gradient[4].ShouldBe(1.0, tolerance: 1e-10);
+        a.Gradient[5].ShouldBe(1.0, tolerance: 1e-10);
+    }
 }

@@ -6,27 +6,36 @@ namespace slm;
 public class SlmModel
 {
     private readonly EmbeddingTable _embedding;
-    private readonly Brain _hiddenBrain;
-    private readonly Brain _outputBrain;
+    private readonly AttentionHead _attention;
+    private readonly Brain _brain;
 
-    public SlmModel(int vocabSize, int contextSize, int embedDim, int hiddenSize)
+    private readonly int _contextSize;
+
+    public SlmModel(int vocabSize, int contextSize, int embedDim, int dHead, int hiddenSize)
     {
+        _contextSize = contextSize;
         _embedding = new EmbeddingTable(vocabSize, embedDim);
-        _hiddenBrain = new Brain("slm_h", contextSize * embedDim, [hiddenSize], ActivationType.Tanh);
-        _outputBrain = new Brain("slm_o", hiddenSize, [vocabSize], ActivationType.None);
+        _attention = new AttentionHead(embedDim, dHead, contextSize);
+        _brain = new Brain("slm", embedDim, [hiddenSize, vocabSize],
+                           [ActivationType.Tanh, ActivationType.None]);
     }
 
     public Operand Forward(int[] contextIndices)
     {
-        var input = _embedding.LookupFlat(contextIndices);
-        var hidden = _hiddenBrain.Forward(input);
-        return _outputBrain.Forward(hidden);
+        var x = _embedding.LookupSequence(contextIndices);  // [T, embedDim]
+        var attended = _attention.Forward(x);               // [T, embedDim]
+        var last = attended.SliceRow(_contextSize - 1);     // [1, embedDim]
+        return _brain.Forward(last);                        // [1, vocabSize]
     }
 
-    public void ZeroGradients() => _embedding.ZeroGradients();
+    public void ZeroGradients()
+    {
+        _embedding.ZeroGradients();
+        _attention.ZeroGradients();
+    }
 
     public Operand[] ParameterMatrices
-        => [_embedding.ParameterMatrix, .._hiddenBrain.ParameterMatrices, .._outputBrain.ParameterMatrices];
+        => [_embedding.ParameterMatrix, .._attention.ParameterMatrices, .._brain.ParameterMatrices];
 
     public double[] FlatParameters
     {

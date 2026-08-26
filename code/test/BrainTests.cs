@@ -29,4 +29,19 @@ public class BrainTests
         output.Rows.ShouldBe(1);
         output.Cols.ShouldBe(1);
     }
+
+    [Test]
+    public void Brain_Mixed_Activations()
+    {
+        var brain = new Brain("test", 2, [4, 3],
+            [ActivationType.Tanh, ActivationType.None]);
+
+        brain.Layers[0].ActivationType.ShouldBe(ActivationType.Tanh);
+        brain.Layers[1].ActivationType.ShouldBe(ActivationType.None);
+
+        var input = Operand.Of(new double[,] { { 1.0, 2.0 } });
+        var output = brain.Forward(input);
+        output.Rows.ShouldBe(1);
+        output.Cols.ShouldBe(3);
+    }
 }
