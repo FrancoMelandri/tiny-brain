@@ -20,11 +20,16 @@ const int MaxValStories = 200;
 var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.txt");
 var TrainingsFile = Path.Combine(AppContext.BaseDirectory, "trainings.txt");
 
-// Parse --epoch N from CLI args
+// Parse --epoch N and --prompt <string> from CLI args
 int? epochOverride = null;
+string promptOverride = null;
 for (var i = 0; i < args.Length - 1; i++)
+{
     if (args[i] == "--epoch" && int.TryParse(args[i + 1], out var n))
         epochOverride = n;
+    if (args[i] == "--prompt")
+        promptOverride = args[i + 1];
+}
 
 // Derive epoch start from previous training runs recorded in trainings.txt
 var epochStart = 0;
@@ -145,7 +150,17 @@ if (shouldTrain)
 
 Console.WriteLine("\nGenerating text (20 words):");
 var genContext = new int[ContextSize];
-Array.Fill(genContext, Tokenizer.BosIdx);
+if (promptOverride != null)
+{
+    var promptTokens = tokenizer.Encode(promptOverride);
+    // left-pad with BOS if shorter than context window, take tail if longer
+    Array.Fill(genContext, Tokenizer.BosIdx);
+    var copyLen = Math.Min(promptTokens.Length, ContextSize);
+    Array.Copy(promptTokens, promptTokens.Length - copyLen, genContext, ContextSize - copyLen, copyLen);
+    Console.WriteLine($"Prompt context: [{string.Join(", ", genContext.Select(idx => tokenizer.Decode([idx])))}]");
+}
+else
+    Array.Fill(genContext, Tokenizer.BosIdx);
 var generated = new List<string>();
 
 for (var i = 0; i < 20; i++)
@@ -161,7 +176,8 @@ for (var i = 0; i < 20; i++)
     genContext = newContext;
 }
 
-Console.WriteLine(string.Join(" ", generated));
+var prefix = promptOverride != null ? promptOverride + " " : "";
+Console.WriteLine(prefix + string.Join(" ", generated));
 
 // Untracked per-row softmax for inference (no autograd graph)
 static double[] SoftmaxRow(double[] data)
