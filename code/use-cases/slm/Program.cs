@@ -56,7 +56,8 @@ var trainData = new TrainingData(trainTokens, ContextSize);
 var valData = new TrainingData(valTokens, ContextSize);
 Console.WriteLine($"Train pairs: {trainData.Pairs.Length}  Val pairs: {valData.Pairs.Length}");
 
-var model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, HiddenSize);
+const int DHead = EmbedDim;   // single-head: head dim == embed dim
+var model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, DHead, HiddenSize);
 
 // Load checkpoint if available (always, so --epoch resumes from existing params)
 if (File.Exists(ParamsFile))

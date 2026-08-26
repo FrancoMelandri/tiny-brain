@@ -233,6 +233,117 @@ public class Operand
         return result;
     }
 
+    // [m,n] -> [n,m]
+    public Operand Transpose()
+    {
+        var m = _rows;
+        var n = _cols;
+        var outFlat = new double[m * n];
+        for (var i = 0; i < m; i++)
+            for (var j = 0; j < n; j++)
+                outFlat[j * m + i] = Data[i * n + j];
+
+        var result = new Operand(outFlat, n, m, (this, null));
+        var inGrad = Gradient;
+        var dOut = result.Gradient;
+
+        result._backward = () =>
+        {
+            for (var i = 0; i < m; i++)
+                for (var j = 0; j < n; j++)
+                    inGrad[i * n + j] += dOut[j * m + i];
+        };
+        return result;
+    }
+
+    // elementwise multiply by fixed scalar
+    public Operand Scale(double s)
+    {
+        var len = _rows * _cols;
+        var outFlat = new double[len];
+        for (var i = 0; i < len; i++)
+            outFlat[i] = s * Data[i];
+
+        var result = new Operand(outFlat, _rows, _cols, (this, null));
+        var inGrad = Gradient;
+        var dOut = result.Gradient;
+
+        result._backward = () =>
+        {
+            for (var i = 0; i < len; i++)
+                inGrad[i] += s * dOut[i];
+        };
+        return result;
+    }
+
+    // [m,n] + [m,n] -> [m,n] (full-shape elementwise add, for residuals)
+    public Operand Add(Operand other)
+    {
+        var len = _rows * _cols;
+        var outFlat = new double[len];
+        for (var i = 0; i < len; i++)
+            outFlat[i] = Data[i] + other.Data[i];
+
+        var result = new Operand(outFlat, _rows, _cols, (this, other));
+        var aGrad = Gradient;
+        var bGrad = other.Gradient;
+        var dOut = result.Gradient;
+
+        result._backward = () =>
+        {
+            for (var i = 0; i < len; i++)
+            {
+                aGrad[i] += dOut[i];
+                bGrad[i] += dOut[i];
+            }
+        };
+        return result;
+    }
+
+    // where mask[i,j] is true set output to fill, else copy; masked positions get zero gradient
+    public Operand MaskFill(bool[,] mask, double fill)
+    {
+        var m = _rows;
+        var n = _cols;
+        var outFlat = new double[m * n];
+        for (var i = 0; i < m; i++)
+            for (var j = 0; j < n; j++)
+                outFlat[i * n + j] = mask[i, j] ? fill : Data[i * n + j];
+
+        var result = new Operand(outFlat, m, n, (this, null));
+        var inGrad = Gradient;
+        var dOut = result.Gradient;
+
+        result._backward = () =>
+        {
+            for (var i = 0; i < m; i++)
+                for (var j = 0; j < n; j++)
+                    if (!mask[i, j])
+                        inGrad[i * n + j] += dOut[i * n + j];
+        };
+        return result;
+    }
+
+    // extract row -> [1, cols]
+    public Operand SliceRow(int row)
+    {
+        var n = _cols;
+        var outFlat = new double[n];
+        Array.Copy(Data, row * n, outFlat, 0, n);
+
+        var result = new Operand(outFlat, 1, n, (this, null));
+        var inGrad = Gradient;
+        var dOut = result.Gradient;
+        var offset = row * n;
+
+        result._backward = () =>
+        {
+            for (var j = 0; j < n; j++)
+                inGrad[offset + j] += dOut[j];
+        };
+        return result;
+    }
+
     // Sum all elements -> [1,1]
     public Operand Sum()
     {
