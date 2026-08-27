@@ -20,15 +20,15 @@ public class LayerTests
     public void Layer_Forward_Tanh_Output_In_Range()
     {
         var layer = new Layer(4, 3, ActivationType.Tanh);
-        var input = Operand.Of(new double[,] { { 1.0, 2.0, 3.0, 4.0 } });
+        var input = Operand.Of(new float[,] { { 1.0f, 2.0f, 3.0f, 4.0f } });
         var output = layer.Forward(input);
 
         output.Rows.ShouldBe(1);
         output.Cols.ShouldBe(3);
         for (var j = 0; j < 3; j++)
         {
-            output.Data[j].ShouldBeGreaterThan(-1.0);
-            output.Data[j].ShouldBeLessThan(1.0);
+            output.Data[j].ShouldBeGreaterThan(-1.0f);
+            output.Data[j].ShouldBeLessThan(1.0f);
         }
     }
 
@@ -36,7 +36,7 @@ public class LayerTests
     public void Layer_Forward_None_Unconstrained()
     {
         var layer = new Layer(2, 3, ActivationType.None);
-        var input = Operand.Of(new double[,] { { 10.0, 10.0 } });
+        var input = Operand.Of(new float[,] { { 10.0f, 10.0f } });
         var output = layer.Forward(input);
 
         output.Rows.ShouldBe(1);

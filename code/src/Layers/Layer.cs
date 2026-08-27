@@ -10,7 +10,7 @@ public class Layer
 
     public Layer(int inputSize, int outputSize, ActivationType activationType)
     {
-        var scale = Math.Sqrt(2.0 / inputSize);
+        var scale = MathF.Sqrt(2.0f / inputSize);
         Weights = Operand.OfRandom(inputSize, outputSize, scale);
         Bias = Operand.OfZero(1, outputSize);
         ActivationType = activationType;

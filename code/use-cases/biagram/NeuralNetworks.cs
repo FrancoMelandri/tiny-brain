@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using TinyBrain;
@@ -20,15 +19,17 @@ public class NeuralNetworks
         _brain = new Brain("biagram", 27, [27], ActivationType.None);
     }
 
-    public void Initialize()
+    public void LoadGguf(string path)
     {
-        if (!File.Exists("parameters.txt")) return;
-        var flat = File.ReadAllLines("parameters.txt")
-            .Select(l => double.Parse(l, CultureInfo.InvariantCulture)).ToArray();
-        FlatParameters = flat;
+        if (!File.Exists(path)) return;
+        var tensors = GgufSerializer.Read(path);
+        FlatParameters = tensors.SelectMany(t => t.data).ToArray();
     }
 
-    public double[] FlatParameters
+    public void SaveGguf(string path)
+        => GgufSerializer.Write(path, "biagram", NamedParameterMatrices);
+
+    public float[] FlatParameters
     {
         get => _brain.ParameterMatrices.SelectMany(m => m.Data).ToArray();
         set
@@ -41,6 +42,13 @@ public class NeuralNetworks
     }
 
     public Operand[] ParameterMatrices => _brain.ParameterMatrices;
+
+    public (string name, Operand tensor)[] NamedParameterMatrices
+        => _brain.Layers.SelectMany((l, i) => new[]
+        {
+            ($"biagram.layer{i}.weight", l.Weights),
+            ($"biagram.layer{i}.bias",   l.Bias),
+        }).ToArray();
 
     public Operand Forward(Operand input) => _brain.Forward(input);
 
@@ -55,7 +63,7 @@ public class NeuralNetworks
             {
                 var xenc = SamplingUtils.OneHotMatrix([ix], 27);
                 var probs = _brain.Forward(xenc).Softmax();
-                var p = new double[27];
+                var p = new float[27];
                 for (var j = 0; j < 27; j++) p[j] = probs.Data[j];
                 ix = SamplingUtils.Multinomial(p);
                 if (ix == 0 || ++steps >= 100) break;
@@ -64,11 +72,4 @@ public class NeuralNetworks
             Console.WriteLine(generated.Fold(string.Empty, (a, c) => a + c));
         }
     }
-
-    public void SaveParameters()
-        => File.WriteAllText("parameters.txt",
-            FlatParameters
-                .Aggregate(new System.Text.StringBuilder(),
-                    (sb, v) => sb.AppendLine(v.ToString(CultureInfo.InvariantCulture)))
-                .ToString());
 }

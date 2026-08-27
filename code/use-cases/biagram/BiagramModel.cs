@@ -50,13 +50,13 @@ public class BiagramModel
             var ix = 0;
             var steps = 0;
             var generated = new List<char>();
-            var p = new double[27];
+            var p = new float[27];
             while (true)
             {
                 //
                 // get the probability row
                 for (int j = 0; j < 27; j++)
-                    p[j] = _probabilities[ix,j];
+                    p[j] = (float)_probabilities[ix,j];
 
                 //
                 // get next character using multinomial based on probability vector 

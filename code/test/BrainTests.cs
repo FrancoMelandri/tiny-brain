@@ -23,7 +23,7 @@ public class BrainTests
     public void Brain_Forward_Output_Shape()
     {
         var brain = new Brain("test", 3, [4, 4, 1]);
-        var input = Operand.Of(new double[,] { { 1.0, 2.0, 3.0 } });
+        var input = Operand.Of(new float[,] { { 1.0f, 2.0f, 3.0f } });
         var output = brain.Forward(input);
 
         output.Rows.ShouldBe(1);
@@ -39,7 +39,7 @@ public class BrainTests
         brain.Layers[0].ActivationType.ShouldBe(ActivationType.Tanh);
         brain.Layers[1].ActivationType.ShouldBe(ActivationType.None);
 
-        var input = Operand.Of(new double[,] { { 1.0, 2.0 } });
+        var input = Operand.Of(new float[,] { { 1.0f, 2.0f } });
         var output = brain.Forward(input);
         output.Rows.ShouldBe(1);
         output.Cols.ShouldBe(3);
