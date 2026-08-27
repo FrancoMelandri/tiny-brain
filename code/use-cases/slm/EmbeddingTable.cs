@@ -10,7 +10,7 @@ public class EmbeddingTable
     public EmbeddingTable(int vocabSize, int embedDim)
     {
         _embedDim = embedDim;
-        _table = Operand.OfRandom(vocabSize, embedDim, 0.1);
+        _table = Operand.OfRandom(vocabSize, embedDim, 0.1f);
     }
 
     // Returns Operand [1, contextSize*embedDim]
@@ -18,7 +18,7 @@ public class EmbeddingTable
     public Operand LookupFlat(int[] contextIndices)
     {
         var cols = contextIndices.Length * _embedDim;
-        var flatData = new double[1, cols];
+        var flatData = new float[1, cols];
         for (var ci = 0; ci < contextIndices.Length; ci++)
             for (var d = 0; d < _embedDim; d++)
                 flatData[0, ci * _embedDim + d] = _table.Data[contextIndices[ci] * _embedDim + d];
@@ -41,7 +41,7 @@ public class EmbeddingTable
     public Operand LookupSequence(int[] contextIndices)
     {
         var t = contextIndices.Length;
-        var data = new double[t, _embedDim];
+        var data = new float[t, _embedDim];
         for (var ci = 0; ci < t; ci++)
             for (var d = 0; d < _embedDim; d++)
                 data[ci, d] = _table.Data[contextIndices[ci] * _embedDim + d];
@@ -62,5 +62,5 @@ public class EmbeddingTable
 
     public Operand ParameterMatrix => _table;
     public void ZeroGradients() => _table.ZeroGradient();
-    public double GradientNormSquared() => _table.GradientNormSquared();
+    public float GradientNormSquared() => _table.GradientNormSquared();
 }

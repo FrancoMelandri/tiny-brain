@@ -5,4 +5,7 @@ tiny-brain.sln.DotSettings.user
 
 obj/
 bin/
-code/use-cases/slm/datasets/    
+code/use-cases/slm/datasets/
+
+parameters.txt
+

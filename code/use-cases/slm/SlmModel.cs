@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using TinyBrain;
 
@@ -37,7 +38,28 @@ public class SlmModel
     public Operand[] ParameterMatrices
         => [_embedding.ParameterMatrix, .._attention.ParameterMatrices, .._brain.ParameterMatrices];
 
-    public double[] FlatParameters
+    public (string name, Operand tensor)[] NamedParameterMatrices
+    {
+        get
+        {
+            var named = new List<(string, Operand)>
+            {
+                ("token_embd.weight", _embedding.ParameterMatrix),
+                ("attn.q_proj.weight", _attention.ParameterMatrices[0]),
+                ("attn.k_proj.weight", _attention.ParameterMatrices[1]),
+                ("attn.v_proj.weight", _attention.ParameterMatrices[2]),
+                ("attn.o_proj.weight", _attention.ParameterMatrices[3]),
+            };
+            for (var i = 0; i < _brain.Layers.Length; i++)
+            {
+                named.Add(($"slm.layer{i}.weight", _brain.Layers[i].Weights));
+                named.Add(($"slm.layer{i}.bias",   _brain.Layers[i].Bias));
+            }
+            return named.ToArray();
+        }
+    }
+
+    public float[] FlatParameters
     {
         get => ParameterMatrices.SelectMany(m => m.Data).ToArray();
         set

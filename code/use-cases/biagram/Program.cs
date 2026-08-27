@@ -28,8 +28,9 @@ Console.WriteLine("");
 Console.WriteLine("----");
 Console.WriteLine("NeuralNetworks");
 
+var paramsFile = System.IO.Path.Combine(AppContext.BaseDirectory, "parameters.gguf");
 var neuralNetwork = new NeuralNetworks(wordsDataset);
-neuralNetwork.Initialize();
+neuralNetwork.LoadGguf(paramsFile);
 
 var trainingSet = biagramsModel.CreateTraining();
 var inputMatrix = SamplingUtils.OneHotMatrix(trainingSet.xs, 27);  // [N, 27]
@@ -46,10 +47,10 @@ for (var loop = 0; loop < 50; loop++)
     lossNN.Backpropagation();
 
     foreach (var m in neuralNetwork.ParameterMatrices)
-        m.ApplyGradients(0.1, 1.0);
+        m.ApplyGradients(0.1f, 1.0f);
 }
 
 neuralNetwork.Generate(5);
-neuralNetwork.SaveParameters();
+neuralNetwork.SaveGguf(paramsFile);
 
 Console.WriteLine("");

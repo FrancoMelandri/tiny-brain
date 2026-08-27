@@ -1,23 +1,21 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
 using slm;
 using TinyBrain;
 
 const int ContextSize = 50;
 const int EmbedDim = 64;
 const int HiddenSize = 128;
-const double LearningRate = 0.02;
+const float LearningRate = 0.02f;
 const int Epochs = 30;
 const int MaxVocabSize = 1000;
 const int MaxTrainStories = 5000;
 const int MaxValStories = 200;
 
-var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.txt");
+var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.gguf");
 var TrainingsFile = Path.Combine(AppContext.BaseDirectory, "trainings.txt");
 
 // Parse --epoch N and --prompt <string> from CLI args
@@ -51,7 +49,7 @@ var valText = DatasetLoader.LoadText(valCsv, MaxValStories);
 var tokens = Tokenizer.SplitWords(trainText);
 var uniqueTokens = tokens.Distinct().Count();
 var tokenizer = new Tokenizer(trainText, MaxVocabSize);
-var coverage = (double)(tokenizer.VocabSize - 3) / uniqueTokens;
+var coverage = (float)(tokenizer.VocabSize - 3) / uniqueTokens;
 Console.WriteLine($"Unique tokens: {uniqueTokens}  Vocab size: {tokenizer.VocabSize}  Coverage: {coverage:P1}");
 
 var trainTokens = tokenizer.Encode(trainText);
@@ -69,9 +67,8 @@ var model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, DHead, Hidd
 if (File.Exists(ParamsFile))
 {
     Console.WriteLine("Loading saved parameters...");
-    var flat = File.ReadAllLines(ParamsFile)
-        .Select(l => double.Parse(l, CultureInfo.InvariantCulture)).ToArray();
-    model.FlatParameters = flat;
+    var ggufTensors = GgufSerializer.Read(ParamsFile);
+    model.FlatParameters = ggufTensors.SelectMany(t => t.data).ToArray();
 }
 
 var shouldTrain = epochOverride.HasValue || !File.Exists(ParamsFile);
@@ -79,8 +76,8 @@ var epochsToRun = epochOverride ?? Epochs;
 
 if (shouldTrain)
 {
-    var finalTrainLoss = 0.0;
-    var finalPerplexity = 0.0;
+    var finalTrainLoss = 0.0f;
+    var finalPerplexity = 0.0f;
     var totalElapsed = TimeSpan.Zero;
 
     Console.WriteLine($"Training — Parameters: {model.FlatParameters.Length}  Pairs: {trainData.Pairs.Length}");
@@ -90,7 +87,7 @@ if (shouldTrain)
         var sw = Stopwatch.StartNew();
         Console.WriteLine($"Epoch {displayEpoch,3}");
 
-        var epochLoss = 0.0;
+        var epochLoss = 0.0f;
         var total = trainData.Pairs.Length;
         var updateEvery = Math.Max(1, total / 10000);
         var pairIdx = 0;
@@ -106,8 +103,8 @@ if (shouldTrain)
 
             loss.Backpropagation();
 
-            var gn = Math.Sqrt(model.ParameterMatrices.Sum(m => m.GradientNormSquared()));
-            var clip = gn > 1.0 ? 1.0 / gn : 1.0;
+            var gn = MathF.Sqrt(model.ParameterMatrices.Sum(m => m.GradientNormSquared()));
+            var clip = gn > 1.0f ? 1.0f / gn : 1.0f;
             foreach (var m in model.ParameterMatrices)
                 m.ApplyGradients(LearningRate, clip);
 
@@ -123,9 +120,9 @@ if (shouldTrain)
         Console.WriteLine();
 
         var valLoss = valData.Pairs
-            .Select(pair => -Math.Log(SoftmaxRow(model.Forward(pair.Context).Data)[pair.Target] + 1e-10))
+            .Select(pair => -MathF.Log(SoftmaxRow(model.Forward(pair.Context).Data)[pair.Target] + 1e-6f))
             .Average();
-        var perplexity = Math.Exp(valLoss);
+        var perplexity = MathF.Exp(valLoss);
         sw.Stop();
 
         finalTrainLoss = epochLoss / trainData.Pairs.Length;
@@ -135,11 +132,7 @@ if (shouldTrain)
         Console.WriteLine($"Epoch {displayEpoch,3}: time={sw.Elapsed}  train_loss={finalTrainLoss:F4}  val_perplexity={finalPerplexity:F2}");
     }
 
-    File.WriteAllText(ParamsFile,
-        model.FlatParameters
-            .Aggregate(new StringBuilder(),
-                (sb, v) => sb.AppendLine(v.ToString(CultureInfo.InvariantCulture)))
-            .ToString());
+    GgufSerializer.Write(ParamsFile, "slm", model.NamedParameterMatrices);
     Console.WriteLine("Parameters saved.");
 
     var record = $"{DateTime.Now:yyyy-MM-ddTHH:mm:ss}  epochs={epochsToRun}" +
@@ -181,23 +174,23 @@ var prefix = promptOverride != null ? promptOverride + " " : "";
 Console.WriteLine(prefix + string.Join(" ", generated));
 
 // Untracked per-row softmax for inference (no autograd graph)
-static double[] SoftmaxRow(double[] data)
+static float[] SoftmaxRow(float[] data)
 {
     var n = data.Length;
-    var max = double.NegativeInfinity;
+    var max = float.NegativeInfinity;
     for (var j = 0; j < n; j++)
         if (data[j] > max) max = data[j];
-    var exps = new double[n];
-    var sum = 0.0;
-    for (var j = 0; j < n; j++) { exps[j] = Math.Exp(data[j] - max); sum += exps[j]; }
+    var exps = new float[n];
+    var sum = 0.0f;
+    for (var j = 0; j < n; j++) { exps[j] = MathF.Exp(data[j] - max); sum += exps[j]; }
     for (var j = 0; j < n; j++) exps[j] /= sum;
     return exps;
 }
 
-static int Multinomial(double[] probs)
+static int Multinomial(float[] probs)
 {
-    var r = new Random().NextDouble();
-    var cumulative = 0.0;
+    var r = (float)new Random().NextDouble();
+    var cumulative = 0.0f;
     for (var i = 0; i < probs.Length; i++)
     {
         cumulative += probs[i];
