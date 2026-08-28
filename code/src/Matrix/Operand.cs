@@ -64,9 +64,20 @@ public class Operand
         return new Operand(data, rows, cols);
     }
 
+    // Static helpers for external code that does CPU-side reads/writes on float[] arrays
+    public static void SynchronizeDeviceArray(float[] data) => _backend.Synchronize(data);
+    public static void InvalidateDeviceArray(float[] data) => _backend.InvalidateDevice(data);
+
     // Allows leaf nodes to register a custom backward (e.g. embedding bridge)
+    // Wraps with sync/invalidate so CPU-side callbacks see current GPU data and
+    // any writes they make are correctly marked for re-upload.
     public void SetBackward(Action<float[]> backward)
-        => _backward = () => backward(Gradient);
+        => _backward = () =>
+        {
+            _backend.Synchronize(Gradient);
+            backward(Gradient);
+            _backend.InvalidateDevice(Gradient);
+        };
 
     // [m,k] x [k,n] -> [m,n]
     public Operand MatMul(Operand w)
@@ -145,6 +156,7 @@ public class Operand
     {
         var m = _rows;
         var n = _cols;
+        _backend.Synchronize(Data);
         var total = 0.0f;
         for (var i = 0; i < m; i++)
             total += -MathF.Log(Data[i * n + targets[i]] + 1e-6f);
@@ -156,8 +168,10 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             for (var i = 0; i < m; i++)
                 inGrad[i * n + targets[i]] += dOut[0] * (-1.0f / (m * (Data[i * n + targets[i]] + 1e-6f)));
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -165,6 +179,7 @@ public class Operand
     // -log(Data[0, targetCol])  ->  [1,1]
     public Operand NLL(int targetCol)
     {
+        _backend.Synchronize(Data);
         var p = Data[targetCol];
         var loss = -MathF.Log(p + 1e-6f);
         var result = new Operand(new float[] { loss }, 1, 1, (this, null));
@@ -173,7 +188,9 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             inGrad[targetCol] += dOut[0] * (-1.0f / (p + 1e-6f));
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -230,6 +247,7 @@ public class Operand
     {
         var m = _rows;
         var n = _cols;
+        _backend.Synchronize(Data);
         var outFlat = new float[m * n];
         for (var i = 0; i < m; i++)
             for (var j = 0; j < n; j++)
@@ -241,10 +259,12 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             for (var i = 0; i < m; i++)
                 for (var j = 0; j < n; j++)
                     if (!mask[i, j])
                         inGrad[i * n + j] += dOut[i * n + j];
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -253,6 +273,7 @@ public class Operand
     public Operand SliceRow(int row)
     {
         var n = _cols;
+        _backend.Synchronize(Data);
         var outFlat = new float[n];
         Array.Copy(Data, row * n, outFlat, 0, n);
 
@@ -263,8 +284,10 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             for (var j = 0; j < n; j++)
                 inGrad[offset + j] += dOut[j];
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -274,6 +297,7 @@ public class Operand
     {
         var total = 0.0f;
         var len = _rows * _cols;
+        _backend.Synchronize(Data);
         for (var i = 0; i < len; i++) total += Data[i];
 
         var result = new Operand(new float[] { total }, 1, 1, (this, null));
@@ -282,8 +306,10 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             for (var i = 0; i < len; i++)
                 inGrad[i] += dOut[0];
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -291,22 +317,32 @@ public class Operand
     public void Backpropagation()
     {
         Gradient[0] = 1.0f;
+        _backend.InvalidateDevice(Gradient);
         var ordered = BuildTopological();
         for (var i = ordered.Count - 1; i >= 0; i--)
             ordered[i]._backward();
     }
 
     public void ZeroGradient()
-        => Array.Clear(Gradient, 0, Gradient.Length);
+    {
+        Array.Clear(Gradient, 0, Gradient.Length);
+        _backend.InvalidateDevice(Gradient);
+    }
 
     public float GradientNormSquared()
-        => TensorPrimitives.Dot(Gradient, Gradient);
+    {
+        _backend.Synchronize(Gradient);
+        return TensorPrimitives.Dot(Gradient, Gradient);
+    }
 
     public void ApplyGradients(float lr, float clipScale)
     {
+        _backend.Synchronize(Data);
+        _backend.Synchronize(Gradient);
         var scale = lr * clipScale;
         for (var i = 0; i < Data.Length; i++)
             Data[i] -= scale * Gradient[i];
+        _backend.InvalidateDevice(Data);
     }
 
     private List<Operand> BuildTopological()

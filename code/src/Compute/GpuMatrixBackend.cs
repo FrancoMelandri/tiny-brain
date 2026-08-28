@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Runtime.CompilerServices;
 using ILGPU;
 using ILGPU.Algorithms;
 using ILGPU.Runtime;
@@ -9,6 +10,62 @@ namespace TinyBrain;
 
 public sealed class GpuMatrixBackend : IMatrixBackend
 {
+    // -------------------------------------------------------------------------
+    // Device buffer tracking — keeps float[] arrays mirrored on GPU
+    // -------------------------------------------------------------------------
+
+    private sealed class DeviceBuffer
+    {
+        public MemoryBuffer1D<float, Stride1D.Dense>? Memory;
+        public bool HostNewer = true; // true = CPU has data not yet on GPU
+    }
+
+    private readonly ConditionalWeakTable<float[], DeviceBuffer> _cache = new();
+
+    // Upload if stale, return GPU view — used for kernel inputs and grad accumulation
+    private ArrayView1D<float, Stride1D.Dense> GetReadView(float[] host)
+    {
+        var buf = _cache.GetOrCreateValue(host);
+        if (buf.Memory == null)
+            buf.Memory = _accelerator.Allocate1D<float>(host.Length);
+        if (buf.HostNewer)
+        {
+            buf.Memory.CopyFromCPU(host);
+            buf.HostNewer = false;
+        }
+        return buf.Memory.View;
+    }
+
+    // Allocate if needed, do NOT upload — used for kernel outputs (kernel overwrites everything)
+    private ArrayView1D<float, Stride1D.Dense> GetWriteView(float[] host)
+    {
+        var buf = _cache.GetOrCreateValue(host);
+        if (buf.Memory == null)
+            buf.Memory = _accelerator.Allocate1D<float>(host.Length);
+        buf.HostNewer = false; // GPU will own after kernel runs
+        return buf.Memory.View;
+    }
+
+    public void Synchronize(float[] host)
+    {
+        if (_cache.TryGetValue(host, out var buf) && buf?.Memory != null && !buf.HostNewer)
+        {
+            _accelerator.Synchronize();
+            buf.Memory.CopyToCPU(host);
+            // HostNewer stays false — GPU buffer is still valid
+        }
+    }
+
+    public void InvalidateDevice(float[] host)
+    {
+        if (_cache.TryGetValue(host, out var buf) && buf != null)
+            buf.HostNewer = true;
+    }
+
+    // -------------------------------------------------------------------------
+    // ILGPU infrastructure
+    // -------------------------------------------------------------------------
+
     private readonly Context _context;
     private readonly CudaAccelerator _accelerator;
 
@@ -245,195 +302,67 @@ public sealed class GpuMatrixBackend : IMatrixBackend
     }
 
     // -------------------------------------------------------------------------
-    // Forward passes
+    // Forward passes — data stays on GPU, no download
     // -------------------------------------------------------------------------
 
     public void MatMul(float[] a, float[] w, float[] output, int m, int k, int n)
-    {
-        using var devA = _accelerator.Allocate1D<float>(a.Length);
-        using var devW = _accelerator.Allocate1D<float>(w.Length);
-        using var devOut = _accelerator.Allocate1D<float>(output.Length);
-        devA.CopyFromCPU(a);
-        devW.CopyFromCPU(w);
-        _matMulKernel(new Index2D(m, n), devA.View, devW.View, devOut.View, m, k, n);
-        _accelerator.Synchronize();
-        devOut.CopyToCPU(output);
-    }
+        => _matMulKernel(new Index2D(m, n), GetReadView(a), GetReadView(w), GetWriteView(output), m, k, n);
 
     public void AddBias(float[] a, float[] bias, float[] output, int m, int n)
-    {
-        using var devA = _accelerator.Allocate1D<float>(a.Length);
-        using var devBias = _accelerator.Allocate1D<float>(bias.Length);
-        using var devOut = _accelerator.Allocate1D<float>(output.Length);
-        devA.CopyFromCPU(a);
-        devBias.CopyFromCPU(bias);
-        _addBiasKernel(new Index2D(m, n), devA.View, devBias.View, devOut.View, m, n);
-        _accelerator.Synchronize();
-        devOut.CopyToCPU(output);
-    }
+        => _addBiasKernel(new Index2D(m, n), GetReadView(a), GetReadView(bias), GetWriteView(output), m, n);
 
     public void Tanh(float[] input, float[] output, int len)
-    {
-        using var devIn = _accelerator.Allocate1D<float>(len);
-        using var devOut = _accelerator.Allocate1D<float>(len);
-        devIn.CopyFromCPU(input);
-        _tanhKernel(new Index1D(len), devIn.View, devOut.View, len);
-        _accelerator.Synchronize();
-        devOut.CopyToCPU(output);
-    }
+        => _tanhKernel(new Index1D(len), GetReadView(input), GetWriteView(output), len);
 
     public void Softmax(float[] input, float[] output, int m, int n)
-    {
-        using var devIn = _accelerator.Allocate1D<float>(m * n);
-        using var devOut = _accelerator.Allocate1D<float>(m * n);
-        devIn.CopyFromCPU(input);
-        _softmaxKernel(new Index1D(m), devIn.View, devOut.View, m, n);
-        _accelerator.Synchronize();
-        devOut.CopyToCPU(output);
-    }
+        => _softmaxKernel(new Index1D(m), GetReadView(input), GetWriteView(output), m, n);
 
     public void Scale(float[] input, float s, float[] output, int len)
-    {
-        using var devIn = _accelerator.Allocate1D<float>(len);
-        using var devOut = _accelerator.Allocate1D<float>(len);
-        devIn.CopyFromCPU(input);
-        _scaleKernel(new Index1D(len), devIn.View, s, devOut.View, len);
-        _accelerator.Synchronize();
-        devOut.CopyToCPU(output);
-    }
+        => _scaleKernel(new Index1D(len), GetReadView(input), s, GetWriteView(output), len);
 
     public void Add(float[] a, float[] b, float[] output, int len)
-    {
-        using var devA = _accelerator.Allocate1D<float>(len);
-        using var devB = _accelerator.Allocate1D<float>(len);
-        using var devOut = _accelerator.Allocate1D<float>(len);
-        devA.CopyFromCPU(a);
-        devB.CopyFromCPU(b);
-        _addKernel(new Index1D(len), devA.View, devB.View, devOut.View, len);
-        _accelerator.Synchronize();
-        devOut.CopyToCPU(output);
-    }
+        => _addKernel(new Index1D(len), GetReadView(a), GetReadView(b), GetWriteView(output), len);
 
     public void Transpose(float[] input, float[] output, int m, int n)
-    {
-        using var devIn = _accelerator.Allocate1D<float>(m * n);
-        using var devOut = _accelerator.Allocate1D<float>(m * n);
-        devIn.CopyFromCPU(input);
-        _transposeKernel(new Index2D(m, n), devIn.View, devOut.View, m, n);
-        _accelerator.Synchronize();
-        devOut.CopyToCPU(output);
-    }
+        => _transposeKernel(new Index2D(m, n), GetReadView(input), GetWriteView(output), m, n);
 
     // -------------------------------------------------------------------------
-    // Backward passes — upload existing gradient state, accumulate, download back
+    // Backward passes — accumulate on GPU, no download
+    // GetReadView is used for gradient arrays too: uploads current value (e.g. zeros
+    // after ZeroGradient), then kernel accumulates; GPU becomes authoritative.
     // -------------------------------------------------------------------------
 
     public void MatMulBackwardLeft(float[] dOut, float[] w, float[] dA, int m, int k, int n)
-    {
-        using var devDOut = _accelerator.Allocate1D<float>(dOut.Length);
-        using var devW = _accelerator.Allocate1D<float>(w.Length);
-        using var devDA = _accelerator.Allocate1D<float>(dA.Length);
-        devDOut.CopyFromCPU(dOut);
-        devW.CopyFromCPU(w);
-        devDA.CopyFromCPU(dA);
-        _matMulBackwardLeftKernel(new Index2D(m, k), devDOut.View, devW.View, devDA.View, m, k, n);
-        _accelerator.Synchronize();
-        devDA.CopyToCPU(dA);
-    }
+        => _matMulBackwardLeftKernel(new Index2D(m, k), GetReadView(dOut), GetReadView(w), GetReadView(dA), m, k, n);
 
     public void MatMulBackwardRight(float[] a, float[] dOut, float[] dW, int m, int k, int n)
-    {
-        using var devA = _accelerator.Allocate1D<float>(a.Length);
-        using var devDOut = _accelerator.Allocate1D<float>(dOut.Length);
-        using var devDW = _accelerator.Allocate1D<float>(dW.Length);
-        devA.CopyFromCPU(a);
-        devDOut.CopyFromCPU(dOut);
-        devDW.CopyFromCPU(dW);
-        _matMulBackwardRightKernel(new Index2D(k, n), devA.View, devDOut.View, devDW.View, m, k, n);
-        _accelerator.Synchronize();
-        devDW.CopyToCPU(dW);
-    }
+        => _matMulBackwardRightKernel(new Index2D(k, n), GetReadView(a), GetReadView(dOut), GetReadView(dW), m, k, n);
 
     public void AddBiasBackward(float[] dOut, float[] dA, float[] dBias, int m, int n)
     {
-        using var devDOut = _accelerator.Allocate1D<float>(dOut.Length);
-        using var devDA = _accelerator.Allocate1D<float>(dA.Length);
-        using var devDBias = _accelerator.Allocate1D<float>(dBias.Length);
-        devDOut.CopyFromCPU(dOut);
-        devDA.CopyFromCPU(dA);
-        devDBias.CopyFromCPU(dBias);
-        _addBiasBackwardInputKernel(new Index1D(m * n), devDOut.View, devDA.View, m * n);
-        _addBiasBackwardBiasKernel(new Index1D(n), devDOut.View, devDBias.View, m, n);
-        _accelerator.Synchronize();
-        devDA.CopyToCPU(dA);
-        devDBias.CopyToCPU(dBias);
+        var devDOut = GetReadView(dOut);
+        _addBiasBackwardInputKernel(new Index1D(m * n), devDOut, GetReadView(dA), m * n);
+        _addBiasBackwardBiasKernel(new Index1D(n), devDOut, GetReadView(dBias), m, n);
     }
 
     public void TanhBackward(float[] tanhOut, float[] dOut, float[] dIn, int len)
-    {
-        using var devTanh = _accelerator.Allocate1D<float>(len);
-        using var devDOut = _accelerator.Allocate1D<float>(len);
-        using var devDIn = _accelerator.Allocate1D<float>(len);
-        devTanh.CopyFromCPU(tanhOut);
-        devDOut.CopyFromCPU(dOut);
-        devDIn.CopyFromCPU(dIn);
-        _tanhBackwardKernel(new Index1D(len), devTanh.View, devDOut.View, devDIn.View, len);
-        _accelerator.Synchronize();
-        devDIn.CopyToCPU(dIn);
-    }
+        => _tanhBackwardKernel(new Index1D(len), GetReadView(tanhOut), GetReadView(dOut), GetReadView(dIn), len);
 
     public void SoftmaxBackward(float[] softOut, float[] dOut, float[] dIn, int m, int n)
-    {
-        using var devSoftOut = _accelerator.Allocate1D<float>(m * n);
-        using var devDOut = _accelerator.Allocate1D<float>(m * n);
-        using var devDIn = _accelerator.Allocate1D<float>(m * n);
-        devSoftOut.CopyFromCPU(softOut);
-        devDOut.CopyFromCPU(dOut);
-        devDIn.CopyFromCPU(dIn);
-        _softmaxBackwardKernel(new Index1D(m), devSoftOut.View, devDOut.View, devDIn.View, m, n);
-        _accelerator.Synchronize();
-        devDIn.CopyToCPU(dIn);
-    }
+        => _softmaxBackwardKernel(new Index1D(m), GetReadView(softOut), GetReadView(dOut), GetReadView(dIn), m, n);
 
     public void ScaleBackward(float s, float[] dOut, float[] dIn, int len)
-    {
-        using var devDOut = _accelerator.Allocate1D<float>(len);
-        using var devDIn = _accelerator.Allocate1D<float>(len);
-        devDOut.CopyFromCPU(dOut);
-        devDIn.CopyFromCPU(dIn);
-        _scaleBackwardKernel(new Index1D(len), s, devDOut.View, devDIn.View, len);
-        _accelerator.Synchronize();
-        devDIn.CopyToCPU(dIn);
-    }
+        => _scaleBackwardKernel(new Index1D(len), s, GetReadView(dOut), GetReadView(dIn), len);
 
     public void AddBackward(float[] dOut, float[] dA, float[] dB, int len)
-    {
-        using var devDOut = _accelerator.Allocate1D<float>(len);
-        using var devDA = _accelerator.Allocate1D<float>(len);
-        using var devDB = _accelerator.Allocate1D<float>(len);
-        devDOut.CopyFromCPU(dOut);
-        devDA.CopyFromCPU(dA);
-        devDB.CopyFromCPU(dB);
-        _addBackwardKernel(new Index1D(len), devDOut.View, devDA.View, devDB.View, len);
-        _accelerator.Synchronize();
-        devDA.CopyToCPU(dA);
-        devDB.CopyToCPU(dB);
-    }
+        => _addBackwardKernel(new Index1D(len), GetReadView(dOut), GetReadView(dA), GetReadView(dB), len);
 
     public void TransposeBackward(float[] dOut, float[] dIn, int m, int n)
-    {
-        using var devDOut = _accelerator.Allocate1D<float>(m * n);
-        using var devDIn = _accelerator.Allocate1D<float>(m * n);
-        devDOut.CopyFromCPU(dOut);
-        devDIn.CopyFromCPU(dIn);
-        _transposeBackwardKernel(new Index2D(m, n), devDOut.View, devDIn.View, m, n);
-        _accelerator.Synchronize();
-        devDIn.CopyToCPU(dIn);
-    }
+        => _transposeBackwardKernel(new Index2D(m, n), GetReadView(dOut), GetReadView(dIn), m, n);
 
     // -------------------------------------------------------------------------
     // Static GPU kernels — must be static for ILGPU
-    // Use XMath.* for GPU-safe math functions (MathF.* is CPU-only)
+    // Use XMath.* for GPU-safe math (MathF.* is CPU-only)
     // -------------------------------------------------------------------------
 
     static void MatMulKernel(
@@ -464,7 +393,7 @@ public sealed class GpuMatrixBackend : IMatrixBackend
         if (i >= m || p >= k) return;
         var sum = 0.0f;
         for (var j = 0; j < n; j++)
-            sum += dOut[i * n + j] * w[p * n + j];  // W^T: w[p,j] = w[p*n+j]
+            sum += dOut[i * n + j] * w[p * n + j];
         dA[i * k + p] += sum;
     }
 
@@ -480,7 +409,7 @@ public sealed class GpuMatrixBackend : IMatrixBackend
         if (p >= k || j >= n) return;
         var sum = 0.0f;
         for (var i = 0; i < m; i++)
-            sum += a[i * k + p] * dOut[i * n + j];  // A^T: a[i,p] = a[i*k+p]
+            sum += a[i * k + p] * dOut[i * n + j];
         dW[p * n + j] += sum;
     }
 

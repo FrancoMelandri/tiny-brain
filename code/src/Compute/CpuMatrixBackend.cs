@@ -141,5 +141,8 @@ public sealed class CpuMatrixBackend : IMatrixBackend
                 dIn[i * n + j] += dOut[j * m + i];
     }
 
+    public void Synchronize(float[] host) { }
+    public void InvalidateDevice(float[] host) { }
+
     public void Dispose() { }
 }

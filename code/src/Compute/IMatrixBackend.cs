@@ -52,4 +52,8 @@ public interface IMatrixBackend : IDisposable
 
     void TransposeBackward(float[] dOut, float[] dIn, int m, int n);
     // original was [m,n]->[n,m]; dOut is [n,m]; dIn[i,j] += dOut[j,i]
+
+    // Sync primitives — no-op on CPU; manage host/device coherency on GPU
+    void Synchronize(float[] host);      // GPU -> CPU if GPU is authoritative
+    void InvalidateDevice(float[] host); // mark HostNewer=true after CPU writes
 }
