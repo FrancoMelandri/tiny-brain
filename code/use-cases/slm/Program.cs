@@ -18,17 +18,21 @@ const int MaxValStories   = 200;
 var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.gguf");
 var TrainingsFile = Path.Combine(AppContext.BaseDirectory, "trainings.txt");
 
-// Parse CLI args: --epoch N  --prompt <str>  --backend cpu|gpu  --batch-size N
+// Parse CLI args: --epoch N  --prompt <str>  --backend cpu|gpu  --batch-size N  --temperature T  --top-k K
 int? epochOverride    = null;
 string promptOverride = null;
 string backendOverride = null;
-int batchSize = 32;
+int   batchSize   = 32;
+float temperature = 1.0f;
+int   topK        = 10;
 for (var i = 0; i < args.Length - 1; i++)
 {
-    if (args[i] == "--epoch"      && int.TryParse(args[i + 1], out var n))  epochOverride   = n;
-    if (args[i] == "--prompt")                                                promptOverride  = args[i + 1];
-    if (args[i] == "--backend")                                               backendOverride = args[i + 1].ToLowerInvariant();
-    if (args[i] == "--batch-size" && int.TryParse(args[i + 1], out var bs) && bs > 0) batchSize = bs;
+    if (args[i] == "--epoch"       && int.TryParse(args[i + 1], out var n))                    epochOverride   = n;
+    if (args[i] == "--prompt")                                                                   promptOverride  = args[i + 1];
+    if (args[i] == "--backend")                                                                  backendOverride = args[i + 1].ToLowerInvariant();
+    if (args[i] == "--batch-size"  && int.TryParse(args[i + 1],   out var bs) && bs > 0)       batchSize   = bs;
+    if (args[i] == "--temperature" && float.TryParse(args[i + 1], out var t)  && t > 0)        temperature = t;
+    if (args[i] == "--top-k"       && int.TryParse(args[i + 1],   out var k)  && k > 0)        topK        = k;
 }
 
 using IMatrixBackend computeBackend = backendOverride switch
@@ -213,6 +217,8 @@ if (shouldTrain)
     Console.WriteLine($"Training log: {record}");
 }
 
+var rng = new Random();
+
 // -------------------------------------------------------------------------
 // Text generation
 // -------------------------------------------------------------------------
@@ -234,8 +240,7 @@ for (var i = 0; i < 20; i++)
 {
     var logits = model.Forward(genContext);
     Operand.SynchronizeDeviceArray(logits.Data);
-    var probs  = SoftmaxRow(logits.Data);
-    var next   = Multinomial(probs);
+    var next = Sample(logits.Data, temperature, topK, rng);
     if (next == Tokenizer.EosIdx) break;
     generated.Add(tokenizer.Decode([next]));
     var newContext = new int[ContextSize];
@@ -262,14 +267,31 @@ static float[] SoftmaxRow(float[] data)
     return exps;
 }
 
-static int Multinomial(float[] probs)
+static int Sample(float[] logits, float temperature, int topK, Random rng)
 {
-    var r = (float)new Random().NextDouble();
-    var cumulative = 0.0f;
-    for (var i = 0; i < probs.Length; i++)
-    {
-        cumulative += probs[i];
-        if (r < cumulative) return i;
-    }
-    return probs.Length - 1;
+    var n = logits.Length;
+
+    if (topK == 1)
+        return Array.IndexOf(logits, logits.Max());  // greedy: argmax on raw logits
+
+    // Apply temperature to logits before softmax
+    var scaled = new float[n];
+    for (var i = 0; i < n; i++) scaled[i] = logits[i] / temperature;
+
+    var probs = SoftmaxRow(scaled);
+
+    // Keep exactly top-k indices, zero out the rest, renormalise
+    var topKSet = Enumerable.Range(0, n)
+        .OrderByDescending(i => probs[i])
+        .Take(topK)
+        .ToHashSet();
+    var sum = 0f;
+    for (var i = 0; i < n; i++) { if (!topKSet.Contains(i)) probs[i] = 0f; else sum += probs[i]; }
+    for (var i = 0; i < n; i++) probs[i] /= sum;
+
+    // Inverse-CDF sample
+    var r = (float)rng.NextDouble();
+    var cumulative = 0f;
+    for (var i = 0; i < n; i++) { cumulative += probs[i]; if (r < cumulative) return i; }
+    return n - 1;
 }
