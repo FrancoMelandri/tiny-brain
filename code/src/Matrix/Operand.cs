@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Numerics.Tensors;
@@ -6,6 +7,12 @@ namespace TinyBrain;
 
 public class Operand
 {
+    private static volatile IMatrixBackend _backend = new CpuMatrixBackend();
+
+    public static void SetBackend(IMatrixBackend backend)
+        => _backend = backend ?? throw new ArgumentNullException(nameof(backend));
+
+
     public float[] Data { get; }
     public float[] Gradient { get; }
 
@@ -16,6 +23,7 @@ public class Operand
     public int Cols => _cols;
 
     private readonly (Operand Left, Operand Right) _previous;
+    private readonly Operand[]? _previousN;
     private Action _backward;
 
     private Operand(float[] data, int rows, int cols)
@@ -33,6 +41,12 @@ public class Operand
         : this(data, rows, cols)
     {
         _previous = previous;
+    }
+
+    private Operand(float[] data, int rows, int cols, Operand[] previousN)
+        : this(data, rows, cols)
+    {
+        _previousN = previousN;
     }
 
     public static Operand Of(float[,] src)
@@ -58,9 +72,20 @@ public class Operand
         return new Operand(data, rows, cols);
     }
 
+    // Static helpers for external code that does CPU-side reads/writes on float[] arrays
+    public static void SynchronizeDeviceArray(float[] data) => _backend.Synchronize(data);
+    public static void InvalidateDeviceArray(float[] data) => _backend.InvalidateDevice(data);
+
     // Allows leaf nodes to register a custom backward (e.g. embedding bridge)
+    // Wraps with sync/invalidate so CPU-side callbacks see current GPU data and
+    // any writes they make are correctly marked for re-upload.
     public void SetBackward(Action<float[]> backward)
-        => _backward = () => backward(Gradient);
+        => _backward = () =>
+        {
+            _backend.Synchronize(Gradient);
+            backward(Gradient);
+            _backend.InvalidateDevice(Gradient);
+        };
 
     // [m,k] x [k,n] -> [m,n]
     public Operand MatMul(Operand w)
@@ -69,15 +94,7 @@ public class Operand
         var k = _cols;
         var n = w._cols;
         var outFlat = new float[m * n];
-
-        // Forward: for each (i,p), accumulate A[i,p] * W_row_p into Out_row_i
-        for (var i = 0; i < m; i++)
-            for (var p = 0; p < k; p++)
-                TensorPrimitives.MultiplyAdd(
-                    new ReadOnlySpan<float>(w.Data, p * n, n),
-                    Data[i * k + p],
-                    new ReadOnlySpan<float>(outFlat, i * n, n),
-                    new Span<float>(outFlat, i * n, n));
+        _backend.MatMul(Data, w.Data, outFlat, m, k, n);
 
         var result = new Operand(outFlat, m, n, (this, w));
         var aData = Data;
@@ -88,21 +105,8 @@ public class Operand
 
         result._backward = () =>
         {
-            // dA[i,p] = Dot(dOut_row_i, W_row_p)
-            for (var i = 0; i < m; i++)
-                for (var p = 0; p < k; p++)
-                    aGrad[i * k + p] += TensorPrimitives.Dot(
-                        new ReadOnlySpan<float>(dOut, i * n, n),
-                        new ReadOnlySpan<float>(wData, p * n, n));
-
-            // dW[p,j] += A[i,p] * dOut[i,j]  (MultiplyAdd over rows)
-            for (var i = 0; i < m; i++)
-                for (var p = 0; p < k; p++)
-                    TensorPrimitives.MultiplyAdd(
-                        new ReadOnlySpan<float>(dOut, i * n, n),
-                        aData[i * k + p],
-                        new ReadOnlySpan<float>(wGrad, p * n, n),
-                        new Span<float>(wGrad, p * n, n));
+            _backend.MatMulBackwardLeft(dOut, wData, aGrad, m, k, n);
+            _backend.MatMulBackwardRight(aData, dOut, wGrad, m, k, n);
         };
         return result;
     }
@@ -113,24 +117,14 @@ public class Operand
         var m = _rows;
         var n = _cols;
         var outFlat = new float[m * n];
-        for (var i = 0; i < m; i++)
-            for (var j = 0; j < n; j++)
-                outFlat[i * n + j] = Data[i * n + j] + b.Data[j];
+        _backend.AddBias(Data, b.Data, outFlat, m, n);
 
         var result = new Operand(outFlat, m, n, (this, b));
         var aGrad = Gradient;
         var bGrad = b.Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < m; i++)
-                for (var j = 0; j < n; j++)
-                {
-                    aGrad[i * n + j] += dOut[i * n + j];
-                    bGrad[j] += dOut[i * n + j];
-                }
-        };
+        result._backward = () => _backend.AddBiasBackward(dOut, aGrad, bGrad, m, n);
         return result;
     }
 
@@ -139,18 +133,13 @@ public class Operand
     {
         var len = _rows * _cols;
         var outFlat = new float[len];
-        for (var i = 0; i < len; i++)
-            outFlat[i] = MathF.Tanh(Data[i]);
+        _backend.Tanh(Data, outFlat, len);
 
         var result = new Operand(outFlat, _rows, _cols, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < len; i++)
-                inGrad[i] += (1 - outFlat[i] * outFlat[i]) * dOut[i];
-        };
+        result._backward = () => _backend.TanhBackward(outFlat, dOut, inGrad, len);
         return result;
     }
 
@@ -160,38 +149,13 @@ public class Operand
         var m = _rows;
         var n = _cols;
         var outFlat = new float[m * n];
-        for (var i = 0; i < m; i++)
-        {
-            var rowStart = i * n;
-            var max = float.NegativeInfinity;
-            for (var j = 0; j < n; j++)
-                if (Data[rowStart + j] > max) max = Data[rowStart + j];
-            var sum = 0.0f;
-            for (var j = 0; j < n; j++)
-            {
-                outFlat[rowStart + j] = MathF.Exp(Data[rowStart + j] - max);
-                sum += outFlat[rowStart + j];
-            }
-            for (var j = 0; j < n; j++)
-                outFlat[rowStart + j] /= sum;
-        }
+        _backend.Softmax(Data, outFlat, m, n);
 
         var result = new Operand(outFlat, m, n, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < m; i++)
-            {
-                var rowStart = i * n;
-                var dot = TensorPrimitives.Dot(
-                    new ReadOnlySpan<float>(dOut, rowStart, n),
-                    new ReadOnlySpan<float>(outFlat, rowStart, n));
-                for (var j = 0; j < n; j++)
-                    inGrad[rowStart + j] += outFlat[rowStart + j] * (dOut[rowStart + j] - dot);
-            }
-        };
+        result._backward = () => _backend.SoftmaxBackward(outFlat, dOut, inGrad, m, n);
         return result;
     }
 
@@ -200,6 +164,7 @@ public class Operand
     {
         var m = _rows;
         var n = _cols;
+        _backend.Synchronize(Data);
         var total = 0.0f;
         for (var i = 0; i < m; i++)
             total += -MathF.Log(Data[i * n + targets[i]] + 1e-6f);
@@ -211,8 +176,10 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             for (var i = 0; i < m; i++)
                 inGrad[i * n + targets[i]] += dOut[0] * (-1.0f / (m * (Data[i * n + targets[i]] + 1e-6f)));
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -220,6 +187,7 @@ public class Operand
     // -log(Data[0, targetCol])  ->  [1,1]
     public Operand NLL(int targetCol)
     {
+        _backend.Synchronize(Data);
         var p = Data[targetCol];
         var loss = -MathF.Log(p + 1e-6f);
         var result = new Operand(new float[] { loss }, 1, 1, (this, null));
@@ -228,7 +196,9 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             inGrad[targetCol] += dOut[0] * (-1.0f / (p + 1e-6f));
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -239,20 +209,13 @@ public class Operand
         var m = _rows;
         var n = _cols;
         var outFlat = new float[m * n];
-        for (var i = 0; i < m; i++)
-            for (var j = 0; j < n; j++)
-                outFlat[j * m + i] = Data[i * n + j];
+        _backend.Transpose(Data, outFlat, m, n);
 
         var result = new Operand(outFlat, n, m, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < m; i++)
-                for (var j = 0; j < n; j++)
-                    inGrad[i * n + j] += dOut[j * m + i];
-        };
+        result._backward = () => _backend.TransposeBackward(dOut, inGrad, m, n);
         return result;
     }
 
@@ -261,18 +224,13 @@ public class Operand
     {
         var len = _rows * _cols;
         var outFlat = new float[len];
-        for (var i = 0; i < len; i++)
-            outFlat[i] = s * Data[i];
+        _backend.Scale(Data, s, outFlat, len);
 
         var result = new Operand(outFlat, _rows, _cols, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < len; i++)
-                inGrad[i] += s * dOut[i];
-        };
+        result._backward = () => _backend.ScaleBackward(s, dOut, inGrad, len);
         return result;
     }
 
@@ -281,22 +239,14 @@ public class Operand
     {
         var len = _rows * _cols;
         var outFlat = new float[len];
-        for (var i = 0; i < len; i++)
-            outFlat[i] = Data[i] + other.Data[i];
+        _backend.Add(Data, other.Data, outFlat, len);
 
         var result = new Operand(outFlat, _rows, _cols, (this, other));
         var aGrad = Gradient;
         var bGrad = other.Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < len; i++)
-            {
-                aGrad[i] += dOut[i];
-                bGrad[i] += dOut[i];
-            }
-        };
+        result._backward = () => _backend.AddBackward(dOut, aGrad, bGrad, len);
         return result;
     }
 
@@ -305,6 +255,7 @@ public class Operand
     {
         var m = _rows;
         var n = _cols;
+        _backend.Synchronize(Data);
         var outFlat = new float[m * n];
         for (var i = 0; i < m; i++)
             for (var j = 0; j < n; j++)
@@ -316,10 +267,12 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             for (var i = 0; i < m; i++)
                 for (var j = 0; j < n; j++)
                     if (!mask[i, j])
                         inGrad[i * n + j] += dOut[i * n + j];
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -328,6 +281,7 @@ public class Operand
     public Operand SliceRow(int row)
     {
         var n = _cols;
+        _backend.Synchronize(Data);
         var outFlat = new float[n];
         Array.Copy(Data, row * n, outFlat, 0, n);
 
@@ -338,8 +292,10 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             for (var j = 0; j < n; j++)
                 inGrad[offset + j] += dOut[j];
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -349,6 +305,7 @@ public class Operand
     {
         var total = 0.0f;
         var len = _rows * _cols;
+        _backend.Synchronize(Data);
         for (var i = 0; i < len; i++) total += Data[i];
 
         var result = new Operand(new float[] { total }, 1, 1, (this, null));
@@ -357,8 +314,10 @@ public class Operand
 
         result._backward = () =>
         {
+            _backend.Synchronize(dOut);
             for (var i = 0; i < len; i++)
                 inGrad[i] += dOut[0];
+            _backend.InvalidateDevice(inGrad);
         };
         return result;
     }
@@ -366,22 +325,32 @@ public class Operand
     public void Backpropagation()
     {
         Gradient[0] = 1.0f;
+        _backend.InvalidateDevice(Gradient);
         var ordered = BuildTopological();
         for (var i = ordered.Count - 1; i >= 0; i--)
             ordered[i]._backward();
     }
 
     public void ZeroGradient()
-        => Array.Clear(Gradient, 0, Gradient.Length);
+    {
+        Array.Clear(Gradient, 0, Gradient.Length);
+        _backend.InvalidateDevice(Gradient);
+    }
 
     public float GradientNormSquared()
-        => TensorPrimitives.Dot(Gradient, Gradient);
+    {
+        _backend.Synchronize(Gradient);
+        return TensorPrimitives.Dot(Gradient, Gradient);
+    }
 
     public void ApplyGradients(float lr, float clipScale)
     {
+        _backend.Synchronize(Data);
+        _backend.Synchronize(Gradient);
         var scale = lr * clipScale;
         for (var i = 0; i < Data.Length; i++)
             Data[i] -= scale * Gradient[i];
+        _backend.InvalidateDevice(Data);
     }
 
     private List<Operand> BuildTopological()
@@ -399,6 +368,10 @@ public class Operand
             if (TryPushUnvisited(stack, visited, current._previous.Left, ref pushed)) continue;
             if (TryPushUnvisited(stack, visited, current._previous.Right, ref pushed)) continue;
 
+            if (!pushed && current._previousN != null)
+                foreach (var p in current._previousN)
+                    if (TryPushUnvisited(stack, visited, p, ref pushed)) break;
+
             if (!pushed)
             {
                 stack.Pop();
@@ -407,6 +380,32 @@ public class Operand
             }
         }
         return ordered;
+    }
+
+    // Stack B [1, n] operands -> [B, n]
+    public static Operand Stack(Operand[] rows)
+    {
+        var b = rows.Length;
+        var n = rows[0].Cols;
+        var outFlat = new float[b * n];
+        for (var i = 0; i < b; i++)
+            Array.Copy(rows[i].Data, 0, outFlat, i * n, n);
+
+        var result = new Operand(outFlat, b, n, rows);
+        var rowGrads = Array.ConvertAll(rows, r => r.Gradient);
+        var dOut = result.Gradient;
+
+        result._backward = () =>
+        {
+            _backend.Synchronize(dOut);
+            for (var i = 0; i < b; i++)
+            {
+                for (var j = 0; j < n; j++)
+                    rowGrads[i][j] += dOut[i * n + j];
+                _backend.InvalidateDevice(rowGrads[i]);
+            }
+        };
+        return result;
     }
 
     private static bool TryPushUnvisited(Stack<Operand> stack, HashSet<Operand> visited,

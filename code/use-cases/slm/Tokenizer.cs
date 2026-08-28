@@ -42,7 +42,31 @@ public class Tokenizer
         }
     }
 
+    public Tokenizer(IReadOnlyList<string> words)
+    {
+        _vocab = new Dictionary<string, int>
+        {
+            ["<UNK>"] = UnkIdx,
+            ["<BOS>"] = BosIdx,
+            ["<EOS>"] = EosIdx
+        };
+        _indexToWord = new Dictionary<int, string>
+        {
+            [UnkIdx] = "<UNK>",
+            [BosIdx] = "<BOS>",
+            [EosIdx] = "<EOS>"
+        };
+        for (var i = 0; i < words.Count; i++)
+        {
+            _vocab[words[i]] = i + 3;
+            _indexToWord[i + 3] = words[i];
+        }
+    }
+
     public int VocabSize => _vocab.Count;
+
+    public IReadOnlyList<string> Words
+        => Enumerable.Range(3, VocabSize - 3).Select(i => _indexToWord[i]).ToArray();
 
     public int[] Encode(string text)
         => SplitWords(text)
