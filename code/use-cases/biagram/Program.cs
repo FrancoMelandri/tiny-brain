@@ -9,6 +9,10 @@ using TinyBrain;
 
 const int MaxWords = 100;
 
+using var computeBackend = GpuMatrixBackend.TryCreate(verbose: true) ?? (IMatrixBackend)new CpuMatrixBackend();
+Operand.SetBackend(computeBackend);
+Console.WriteLine($"Backend: {computeBackend.GetType().Name}");
+
 var wordsDataset = System.IO.File.ReadAllLines(System.IO.Path.Combine(AppContext.BaseDirectory, "names.txt")).Take(MaxWords).ToArray();
 Console.WriteLine($"Found {wordsDataset.Length} words");
 

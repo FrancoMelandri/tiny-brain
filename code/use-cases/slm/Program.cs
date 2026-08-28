@@ -18,16 +18,30 @@ const int MaxValStories = 200;
 var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.gguf");
 var TrainingsFile = Path.Combine(AppContext.BaseDirectory, "trainings.txt");
 
-// Parse --epoch N and --prompt <string> from CLI args
+// Parse --epoch N, --prompt <string>, and --backend cpu|gpu from CLI args
 int? epochOverride = null;
 string promptOverride = null;
+string backendOverride = null;
 for (var i = 0; i < args.Length - 1; i++)
 {
     if (args[i] == "--epoch" && int.TryParse(args[i + 1], out var n))
         epochOverride = n;
     if (args[i] == "--prompt")
         promptOverride = args[i + 1];
+    if (args[i] == "--backend")
+        backendOverride = args[i + 1].ToLowerInvariant();
 }
+
+using IMatrixBackend computeBackend = backendOverride switch
+{
+    "cpu" => new CpuMatrixBackend(),
+    "gpu" => GpuMatrixBackend.TryCreate(verbose: true)
+             ?? throw new InvalidOperationException("--backend gpu requested but GPU is not available."),
+    null  => GpuMatrixBackend.TryCreate(verbose: true) ?? (IMatrixBackend)new CpuMatrixBackend(),
+    _     => throw new ArgumentException($"Unknown --backend value '{backendOverride}'. Use 'cpu' or 'gpu'.")
+};
+Operand.SetBackend(computeBackend);
+Console.WriteLine($"Backend: {computeBackend.GetType().Name}");
 
 // Derive epoch start from previous training runs recorded in trainings.txt
 var epochStart = 0;

@@ -6,6 +6,12 @@ namespace TinyBrain;
 
 public class Operand
 {
+    private static volatile IMatrixBackend _backend = new CpuMatrixBackend();
+
+    public static void SetBackend(IMatrixBackend backend)
+        => _backend = backend ?? throw new ArgumentNullException(nameof(backend));
+
+
     public float[] Data { get; }
     public float[] Gradient { get; }
 
@@ -69,15 +75,7 @@ public class Operand
         var k = _cols;
         var n = w._cols;
         var outFlat = new float[m * n];
-
-        // Forward: for each (i,p), accumulate A[i,p] * W_row_p into Out_row_i
-        for (var i = 0; i < m; i++)
-            for (var p = 0; p < k; p++)
-                TensorPrimitives.MultiplyAdd(
-                    new ReadOnlySpan<float>(w.Data, p * n, n),
-                    Data[i * k + p],
-                    new ReadOnlySpan<float>(outFlat, i * n, n),
-                    new Span<float>(outFlat, i * n, n));
+        _backend.MatMul(Data, w.Data, outFlat, m, k, n);
 
         var result = new Operand(outFlat, m, n, (this, w));
         var aData = Data;
@@ -88,21 +86,8 @@ public class Operand
 
         result._backward = () =>
         {
-            // dA[i,p] = Dot(dOut_row_i, W_row_p)
-            for (var i = 0; i < m; i++)
-                for (var p = 0; p < k; p++)
-                    aGrad[i * k + p] += TensorPrimitives.Dot(
-                        new ReadOnlySpan<float>(dOut, i * n, n),
-                        new ReadOnlySpan<float>(wData, p * n, n));
-
-            // dW[p,j] += A[i,p] * dOut[i,j]  (MultiplyAdd over rows)
-            for (var i = 0; i < m; i++)
-                for (var p = 0; p < k; p++)
-                    TensorPrimitives.MultiplyAdd(
-                        new ReadOnlySpan<float>(dOut, i * n, n),
-                        aData[i * k + p],
-                        new ReadOnlySpan<float>(wGrad, p * n, n),
-                        new Span<float>(wGrad, p * n, n));
+            _backend.MatMulBackwardLeft(dOut, wData, aGrad, m, k, n);
+            _backend.MatMulBackwardRight(aData, dOut, wGrad, m, k, n);
         };
         return result;
     }
@@ -113,24 +98,14 @@ public class Operand
         var m = _rows;
         var n = _cols;
         var outFlat = new float[m * n];
-        for (var i = 0; i < m; i++)
-            for (var j = 0; j < n; j++)
-                outFlat[i * n + j] = Data[i * n + j] + b.Data[j];
+        _backend.AddBias(Data, b.Data, outFlat, m, n);
 
         var result = new Operand(outFlat, m, n, (this, b));
         var aGrad = Gradient;
         var bGrad = b.Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < m; i++)
-                for (var j = 0; j < n; j++)
-                {
-                    aGrad[i * n + j] += dOut[i * n + j];
-                    bGrad[j] += dOut[i * n + j];
-                }
-        };
+        result._backward = () => _backend.AddBiasBackward(dOut, aGrad, bGrad, m, n);
         return result;
     }
 
@@ -139,18 +114,13 @@ public class Operand
     {
         var len = _rows * _cols;
         var outFlat = new float[len];
-        for (var i = 0; i < len; i++)
-            outFlat[i] = MathF.Tanh(Data[i]);
+        _backend.Tanh(Data, outFlat, len);
 
         var result = new Operand(outFlat, _rows, _cols, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < len; i++)
-                inGrad[i] += (1 - outFlat[i] * outFlat[i]) * dOut[i];
-        };
+        result._backward = () => _backend.TanhBackward(outFlat, dOut, inGrad, len);
         return result;
     }
 
@@ -160,38 +130,13 @@ public class Operand
         var m = _rows;
         var n = _cols;
         var outFlat = new float[m * n];
-        for (var i = 0; i < m; i++)
-        {
-            var rowStart = i * n;
-            var max = float.NegativeInfinity;
-            for (var j = 0; j < n; j++)
-                if (Data[rowStart + j] > max) max = Data[rowStart + j];
-            var sum = 0.0f;
-            for (var j = 0; j < n; j++)
-            {
-                outFlat[rowStart + j] = MathF.Exp(Data[rowStart + j] - max);
-                sum += outFlat[rowStart + j];
-            }
-            for (var j = 0; j < n; j++)
-                outFlat[rowStart + j] /= sum;
-        }
+        _backend.Softmax(Data, outFlat, m, n);
 
         var result = new Operand(outFlat, m, n, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < m; i++)
-            {
-                var rowStart = i * n;
-                var dot = TensorPrimitives.Dot(
-                    new ReadOnlySpan<float>(dOut, rowStart, n),
-                    new ReadOnlySpan<float>(outFlat, rowStart, n));
-                for (var j = 0; j < n; j++)
-                    inGrad[rowStart + j] += outFlat[rowStart + j] * (dOut[rowStart + j] - dot);
-            }
-        };
+        result._backward = () => _backend.SoftmaxBackward(outFlat, dOut, inGrad, m, n);
         return result;
     }
 
@@ -239,20 +184,13 @@ public class Operand
         var m = _rows;
         var n = _cols;
         var outFlat = new float[m * n];
-        for (var i = 0; i < m; i++)
-            for (var j = 0; j < n; j++)
-                outFlat[j * m + i] = Data[i * n + j];
+        _backend.Transpose(Data, outFlat, m, n);
 
         var result = new Operand(outFlat, n, m, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < m; i++)
-                for (var j = 0; j < n; j++)
-                    inGrad[i * n + j] += dOut[j * m + i];
-        };
+        result._backward = () => _backend.TransposeBackward(dOut, inGrad, m, n);
         return result;
     }
 
@@ -261,18 +199,13 @@ public class Operand
     {
         var len = _rows * _cols;
         var outFlat = new float[len];
-        for (var i = 0; i < len; i++)
-            outFlat[i] = s * Data[i];
+        _backend.Scale(Data, s, outFlat, len);
 
         var result = new Operand(outFlat, _rows, _cols, (this, null));
         var inGrad = Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < len; i++)
-                inGrad[i] += s * dOut[i];
-        };
+        result._backward = () => _backend.ScaleBackward(s, dOut, inGrad, len);
         return result;
     }
 
@@ -281,22 +214,14 @@ public class Operand
     {
         var len = _rows * _cols;
         var outFlat = new float[len];
-        for (var i = 0; i < len; i++)
-            outFlat[i] = Data[i] + other.Data[i];
+        _backend.Add(Data, other.Data, outFlat, len);
 
         var result = new Operand(outFlat, _rows, _cols, (this, other));
         var aGrad = Gradient;
         var bGrad = other.Gradient;
         var dOut = result.Gradient;
 
-        result._backward = () =>
-        {
-            for (var i = 0; i < len; i++)
-            {
-                aGrad[i] += dOut[i];
-                bGrad[i] += dOut[i];
-            }
-        };
+        result._backward = () => _backend.AddBackward(dOut, aGrad, bGrad, len);
         return result;
     }
 

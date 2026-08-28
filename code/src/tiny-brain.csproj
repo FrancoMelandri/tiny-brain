@@ -8,6 +8,8 @@
   <ItemGroup>
     <PackageReference Include="tiny-fp" Version="2.1.0" />
     <PackageReference Include="System.Numerics.Tensors" Version="9.*" />
+    <PackageReference Include="ILGPU" Version="1.5.*" />
+    <PackageReference Include="ILGPU.Algorithms" Version="1.5.*" />
   </ItemGroup>
   
 </Project>
