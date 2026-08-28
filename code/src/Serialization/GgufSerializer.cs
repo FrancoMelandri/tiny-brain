@@ -20,13 +20,18 @@ public static class GgufSerializer
     private const uint Version = 3;
     private const uint GgmlTypeF32 = 0;
     private const uint KvTypeString = 8;
+    private const uint KvTypeUint64 = 10;
     private const int Alignment = 32;
 
     public static void Write(string path,
                              string modelName,
-                             IEnumerable<(string name, Operand tensor)> tensors)
+                             IEnumerable<(string name, Operand tensor)> tensors,
+                             IEnumerable<(string key, string value)>? stringKv = null,
+                             IEnumerable<(string key, ulong value)>? uint64Kv = null)
     {
         var tensorList = tensors.ToList();
+        var extraStrKv  = stringKv?.ToList() ?? [];
+        var extraU64Kv  = uint64Kv?.ToList() ?? [];
 
         // Compute data section offsets
         var offsets = new ulong[tensorList.Count];
@@ -47,19 +52,31 @@ public static class GgufSerializer
         w.Write(Version);
         w.Write((ulong)tensorList.Count);
 
-        // KV pairs: general.architecture and general.name
-        var kvPairs = new (string key, string value)[]
+        // KV count: 2 built-in string pairs + caller-supplied extras
+        var builtIn = new (string key, string value)[]
         {
             ("general.architecture", modelName),
             ("general.name",         modelName),
         };
-        w.Write((ulong)kvPairs.Length);
+        w.Write((ulong)(builtIn.Length + extraStrKv.Count + extraU64Kv.Count));
 
-        foreach (var (key, value) in kvPairs)
+        foreach (var (key, value) in builtIn)
         {
             WriteString(w, key);
             w.Write(KvTypeString);
             WriteString(w, value);
+        }
+        foreach (var (key, value) in extraStrKv)
+        {
+            WriteString(w, key);
+            w.Write(KvTypeString);
+            WriteString(w, value);
+        }
+        foreach (var (key, value) in extraU64Kv)
+        {
+            WriteString(w, key);
+            w.Write(KvTypeUint64);
+            w.Write(value);
         }
 
         // Tensor info
@@ -156,6 +173,74 @@ public static class GgufSerializer
         }
 
         return result;
+    }
+
+    public static (
+        IReadOnlyList<(string name, int rows, int cols, float[] data)> Tensors,
+        Dictionary<string, string> StringKv,
+        Dictionary<string, ulong> Uint64Kv
+    ) ReadWithMetadata(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read);
+        using var r = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
+
+        var magic = r.ReadBytes(4);
+        if (!magic.SequenceEqual(Magic))
+            throw new InvalidDataException("Not a GGUF file.");
+
+        var version = r.ReadUInt32();
+        if (version != Version)
+            throw new InvalidDataException($"Unsupported GGUF version {version}; expected {Version}.");
+
+        var tensorCount = (int)r.ReadUInt64();
+        var kvCount     = (int)r.ReadUInt64();
+
+        var strKv  = new Dictionary<string, string>();
+        var u64Kv  = new Dictionary<string, ulong>();
+
+        for (var i = 0; i < kvCount; i++)
+        {
+            var key  = ReadString(r);
+            var type = r.ReadUInt32();
+            if (type == KvTypeString)
+                strKv[key] = ReadString(r);
+            else if (type == KvTypeUint64)
+                u64Kv[key] = r.ReadUInt64();
+            else
+                SkipKvValue(r, type);
+        }
+
+        var infos = new (string name, int rows, int cols, ulong offset)[tensorCount];
+        for (var i = 0; i < tensorCount; i++)
+        {
+            var name  = ReadString(r);
+            var nDims = r.ReadUInt32();
+            var dims  = new ulong[nDims];
+            for (var d = 0; d < nDims; d++)
+                dims[d] = r.ReadUInt64();
+            r.ReadUInt32();
+            var offset = r.ReadUInt64();
+            var rows   = nDims >= 1 ? (int)dims[0] : 1;
+            var cols   = nDims >= 2 ? (int)dims[1] : 1;
+            infos[i]   = (name, rows, cols, offset);
+        }
+
+        var headerEnd  = stream.Position;
+        var dataStart  = (long)Pad((ulong)headerEnd, Alignment);
+        stream.Seek(dataStart, SeekOrigin.Begin);
+
+        var tensors = new List<(string, int, int, float[])>();
+        foreach (var (name, rows, cols, offset) in infos)
+        {
+            stream.Seek(dataStart + (long)offset, SeekOrigin.Begin);
+            var count     = rows * cols;
+            var floatData = new float[count];
+            var buf       = r.ReadBytes(count * sizeof(float));
+            Buffer.BlockCopy(buf, 0, floatData, 0, buf.Length);
+            tensors.Add((name, rows, cols, floatData));
+        }
+
+        return (tensors, strKv, u64Kv);
     }
 
     private static void WriteString(BinaryWriter w, string s)

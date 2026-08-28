@@ -6,33 +6,29 @@ using System.Linq;
 using slm;
 using TinyBrain;
 
-const int ContextSize = 50;
-const int EmbedDim = 64;
-const int HiddenSize = 128;
-const float LearningRate = 0.02f;
-const int Epochs = 30;
-const int MaxVocabSize = 20000;
-const int MaxTrainStories = 10000;
-const int MaxValStories = 200;
+const int ContextSize     = 50;
+const int EmbedDim        = 64;
+const int HiddenSize      = 128;
+const float LearningRate  = 0.02f;
+const int Epochs          = 30;
+const int MaxVocabSize    = 20000;
+const int MaxTrainStories = 1000;
+const int MaxValStories   = 200;
 
 var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.gguf");
 var TrainingsFile = Path.Combine(AppContext.BaseDirectory, "trainings.txt");
 
-// Parse --epoch N, --prompt <string>, --backend cpu|gpu, --batch-size N from CLI args
-int? epochOverride = null;
+// Parse CLI args: --epoch N  --prompt <str>  --backend cpu|gpu  --batch-size N
+int? epochOverride    = null;
 string promptOverride = null;
 string backendOverride = null;
 int batchSize = 32;
 for (var i = 0; i < args.Length - 1; i++)
 {
-    if (args[i] == "--epoch" && int.TryParse(args[i + 1], out var n))
-        epochOverride = n;
-    if (args[i] == "--prompt")
-        promptOverride = args[i + 1];
-    if (args[i] == "--backend")
-        backendOverride = args[i + 1].ToLowerInvariant();
-    if (args[i] == "--batch-size" && int.TryParse(args[i + 1], out var bs) && bs > 0)
-        batchSize = bs;
+    if (args[i] == "--epoch"      && int.TryParse(args[i + 1], out var n))  epochOverride   = n;
+    if (args[i] == "--prompt")                                                promptOverride  = args[i + 1];
+    if (args[i] == "--backend")                                               backendOverride = args[i + 1].ToLowerInvariant();
+    if (args[i] == "--batch-size" && int.TryParse(args[i + 1], out var bs) && bs > 0) batchSize = bs;
 }
 
 using IMatrixBackend computeBackend = backendOverride switch
@@ -46,81 +42,128 @@ using IMatrixBackend computeBackend = backendOverride switch
 Operand.SetBackend(computeBackend);
 Console.WriteLine($"Backend: {computeBackend.GetType().Name}");
 
-// Derive epoch start from previous training runs recorded in trainings.txt
+// Epoch display counter — sums all "epochs=N" lines in trainings.txt
 var epochStart = 0;
-if (File.Exists(Path.Combine(AppContext.BaseDirectory, "trainings.txt")))
-    foreach (var line in File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "trainings.txt")))
+if (File.Exists(TrainingsFile))
+    foreach (var line in File.ReadAllLines(TrainingsFile))
     {
         var m = System.Text.RegularExpressions.Regex.Match(line, @"epochs=(\d+)");
         if (m.Success) epochStart += int.Parse(m.Groups[1].Value);
     }
 
-// Datasets are read directly from source — too large to copy to output dir
 var datasetsDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../datasets"));
 var trainCsv = Path.Combine(datasetsDir, "train.csv");
-var valCsv = Path.Combine(datasetsDir, "validation.csv");
+var valCsv   = Path.Combine(datasetsDir, "validation.csv");
 
-var trainText = DatasetLoader.LoadText(trainCsv, MaxTrainStories);
-var valText = DatasetLoader.LoadText(valCsv, MaxValStories);
+// -------------------------------------------------------------------------
+// Tokenizer, model and story cursor — first-launch vs resume
+// -------------------------------------------------------------------------
+var totalStories = DatasetLoader.CountStories(trainCsv);
+Console.WriteLine($"Total stories in corpus: {totalStories}");
 
-var tokens = Tokenizer.SplitWords(trainText);
-var uniqueTokens = tokens.Distinct().Count();
-var tokenizer = new Tokenizer(trainText, MaxVocabSize);
-var coverage = (float)(tokenizer.VocabSize - 3) / uniqueTokens;
-Console.WriteLine($"Unique tokens: {uniqueTokens}  Vocab size: {tokenizer.VocabSize}  Coverage: {coverage:P1}");
+Tokenizer tokenizer;
+SlmModel model;
+int storyOffset;
 
-var trainTokens = tokenizer.Encode(trainText);
-var valTokens = tokenizer.Encode(valText);
-Console.WriteLine($"Train tokens: {trainTokens.Length}  Val tokens: {valTokens.Length}");
-
-var trainData = new TrainingData(trainTokens, ContextSize);
-var valData = new TrainingData(valTokens, ContextSize);
-Console.WriteLine($"Train pairs: {trainData.Pairs.Length}  Val pairs: {valData.Pairs.Length}");
-
-const int DHead = EmbedDim;   // single-head: head dim == embed dim
-var model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, DHead, HiddenSize);
-
-// Load checkpoint if available (always, so --epoch resumes from existing params)
 if (File.Exists(ParamsFile))
 {
-    Console.WriteLine("Loading saved parameters...");
-    var ggufTensors = GgufSerializer.Read(ParamsFile);
-    model.FlatParameters = ggufTensors.SelectMany(t => t.data).ToArray();
+    // Resume: load vocab + story cursor from GGUF
+    Console.WriteLine("Loading checkpoint...");
+    var (tensors, strKv, u64Kv) = GgufSerializer.ReadWithMetadata(ParamsFile);
+
+    if (strKv.TryGetValue("tokenizer.vocab", out var vocabStr))
+    {
+        tokenizer = new Tokenizer(vocabStr.Split('\t'));
+        Console.WriteLine($"Vocab loaded from GGUF: {tokenizer.VocabSize} tokens");
+    }
+    else
+    {
+        // Legacy GGUF without saved vocab — rebuild from full corpus
+        Console.WriteLine("No vocab in GGUF, rebuilding from full corpus...");
+        var allText = DatasetLoader.LoadText(trainCsv, totalStories);
+        tokenizer = new Tokenizer(allText, MaxVocabSize);
+        Console.WriteLine($"Vocab built: {tokenizer.VocabSize} tokens");
+    }
+
+    storyOffset = u64Kv.TryGetValue("training.story_offset", out var savedOff) ? (int)savedOff : 0;
+    Console.WriteLine($"Story offset: {storyOffset}");
+
+    model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, EmbedDim, HiddenSize);
+    model.FlatParameters = tensors.SelectMany(t => t.data).ToArray();
+}
+else
+{
+    // First launch: build vocabulary from ALL stories, save initial GGUF
+    Console.WriteLine("First launch — building vocabulary from full corpus...");
+    var allText   = DatasetLoader.LoadText(trainCsv, totalStories);
+    var allWords  = Tokenizer.SplitWords(allText);
+    var uniqueCnt = allWords.Distinct().Count();
+    tokenizer = new Tokenizer(allText, MaxVocabSize);
+    var coverage = (float)(tokenizer.VocabSize - 3) / uniqueCnt;
+    Console.WriteLine($"Unique tokens: {uniqueCnt}  Vocab: {tokenizer.VocabSize}  Coverage: {coverage:P1}");
+
+    storyOffset = 0;
+    model = new SlmModel(tokenizer.VocabSize, ContextSize, EmbedDim, EmbedDim, HiddenSize);
+
+    // Persist vocab + initial (random) params immediately
+    GgufSerializer.Write(ParamsFile, "slm", model.NamedParameterMatrices,
+        stringKv: [("tokenizer.vocab", string.Join('\t', tokenizer.Words))],
+        uint64Kv: [("training.story_offset", 0UL)]);
+    Console.WriteLine("Vocabulary and initial parameters saved to GGUF.");
 }
 
-var shouldTrain = epochOverride.HasValue || !File.Exists(ParamsFile);
-var epochsToRun = epochOverride ?? Epochs;
+// -------------------------------------------------------------------------
+// Training
+// -------------------------------------------------------------------------
+var shouldTrain  = !File.Exists(ParamsFile) || epochOverride.HasValue;
+var epochsToRun  = epochOverride ?? Epochs;
+
+// valData is constant across epochs (small, fixed validation window)
+var valData = new TrainingData(tokenizer.Encode(DatasetLoader.LoadText(valCsv, MaxValStories)), ContextSize);
+
+// shouldTrain is now always true on first launch; on resume only if --epoch is given
+// Re-evaluate: first launch always trains; resume trains only when --epoch specified
+shouldTrain = !File.Exists(ParamsFile) || epochOverride.HasValue;
 
 if (shouldTrain)
 {
-    var finalTrainLoss = 0.0f;
+    var finalTrainLoss  = 0.0f;
     var finalPerplexity = 0.0f;
-    var totalElapsed = TimeSpan.Zero;
+    var totalElapsed    = TimeSpan.Zero;
 
-    Console.WriteLine($"Training — Parameters: {model.FlatParameters.Length}  Pairs: {trainData.Pairs.Length}");
+    Console.WriteLine($"Training — Parameters: {model.FlatParameters.Length}");
+
     for (var epoch = 0; epoch < epochsToRun; epoch++)
     {
-        var displayEpoch = epochStart + epoch;
-        var sw = Stopwatch.StartNew();
-        Console.WriteLine($"Epoch {displayEpoch,3}  batch_size={batchSize}");
+        var displayEpoch    = epochStart + epoch;
+        var effectiveOffset = storyOffset % totalStories;
+        var sw              = Stopwatch.StartNew();
 
-        var epochLoss = 0.0f;
-        var total = trainData.Pairs.Length;
-        var updateEvery = Math.Max(1, total / 10000);
+        // Load the story window for this epoch
+        var epochText  = DatasetLoader.LoadText(trainCsv, MaxTrainStories, effectiveOffset);
+        var trainData  = new TrainingData(tokenizer.Encode(epochText), ContextSize);
+
+        Console.WriteLine($"Epoch {displayEpoch,3}  " +
+                          $"stories=[{effectiveOffset}..{effectiveOffset + MaxTrainStories}]  " +
+                          $"pairs={trainData.Pairs.Length}  batch={batchSize}");
+
+        var epochLoss       = 0.0f;
+        var total           = trainData.Pairs.Length;
+        var updateEvery     = Math.Max(1, total / 10000);
         var samplesProcessed = 0;
 
         foreach (var (contexts, targets) in trainData.Batches(batchSize))
         {
             model.ZeroGradients();
 
-            var logits = model.ForwardBatch(contexts);  // [B, vocabSize]
+            var logits = model.ForwardBatch(contexts);
             var probs  = logits.Softmax();
-            var loss   = probs.NLL(targets);            // batch mean NLL
+            var loss   = probs.NLL(targets);
             epochLoss += loss.Data[0] * contexts.Length;
 
             loss.Backpropagation();
 
-            var gn = MathF.Sqrt(model.ParameterMatrices.Sum(m => m.GradientNormSquared()));
+            var gn   = MathF.Sqrt(model.ParameterMatrices.Sum(m => m.GradientNormSquared()));
             var clip = gn > 1.0f ? 1.0f / gn : 1.0f;
             foreach (var m in model.ParameterMatrices)
                 m.ApplyGradients(LearningRate, clip);
@@ -128,29 +171,40 @@ if (shouldTrain)
             samplesProcessed += contexts.Length;
             if (samplesProcessed % updateEvery < batchSize || samplesProcessed >= total)
             {
-                var pct = (double)samplesProcessed / total;
+                var pct    = (double)samplesProcessed / total;
                 var filled = (int)(pct * 40);
-                var bar = new string('█', filled) + new string('░', 40 - filled);
+                var bar    = new string('█', filled) + new string('░', 40 - filled);
                 Console.Write($"\r  [{bar}] {pct:P0} ({samplesProcessed}/{total})");
             }
         }
         Console.WriteLine();
 
-        var valLoss = valData.Pairs
-            .Select(pair => -MathF.Log(SoftmaxRow(model.Forward(pair.Context).Data)[pair.Target] + 1e-6f))
+        storyOffset += MaxTrainStories;
+
+        var valLoss    = valData.Pairs
+            .Select(p =>
+            {
+                var logitsVal = model.Forward(p.Context);
+                Operand.SynchronizeDeviceArray(logitsVal.Data);
+                return -MathF.Log(SoftmaxRow(logitsVal.Data)[p.Target] + 1e-6f);
+            })
             .Average();
         var perplexity = MathF.Exp(valLoss);
         sw.Stop();
 
-        finalTrainLoss = epochLoss / samplesProcessed;
+        finalTrainLoss  = epochLoss / samplesProcessed;
         finalPerplexity = perplexity;
-        totalElapsed += sw.Elapsed;
+        totalElapsed   += sw.Elapsed;
 
-        Console.WriteLine($"Epoch {displayEpoch,3}: time={sw.Elapsed}  train_loss={finalTrainLoss:F4}  val_perplexity={finalPerplexity:F2}");
+        Console.WriteLine($"Epoch {displayEpoch,3}: time={sw.Elapsed}  " +
+                          $"train_loss={finalTrainLoss:F4}  val_perplexity={finalPerplexity:F2}");
     }
 
-    GgufSerializer.Write(ParamsFile, "slm", model.NamedParameterMatrices);
-    Console.WriteLine("Parameters saved.");
+    // Save updated params + story cursor + vocab
+    GgufSerializer.Write(ParamsFile, "slm", model.NamedParameterMatrices,
+        stringKv: [("tokenizer.vocab", string.Join('\t', tokenizer.Words))],
+        uint64Kv: [("training.story_offset", (ulong)storyOffset)]);
+    Console.WriteLine("Checkpoint saved.");
 
     var record = $"{DateTime.Now:yyyy-MM-ddTHH:mm:ss}  epochs={epochsToRun}" +
                  $"  train_loss={finalTrainLoss:F4}  val_perplexity={finalPerplexity:F2}" +
@@ -159,26 +213,29 @@ if (shouldTrain)
     Console.WriteLine($"Training log: {record}");
 }
 
+// -------------------------------------------------------------------------
+// Text generation
+// -------------------------------------------------------------------------
 Console.WriteLine("\nGenerating text (20 words):");
 var genContext = new int[ContextSize];
 if (promptOverride != null)
 {
     var promptTokens = tokenizer.Encode(promptOverride);
-    // left-pad with BOS if shorter than context window, take tail if longer
     Array.Fill(genContext, Tokenizer.BosIdx);
     var copyLen = Math.Min(promptTokens.Length, ContextSize);
     Array.Copy(promptTokens, promptTokens.Length - copyLen, genContext, ContextSize - copyLen, copyLen);
-    Console.WriteLine($"Prompt context: [{string.Join(", ", genContext.Select(idx => tokenizer.Decode([idx])))}]");
+    Console.WriteLine($"Prompt: [{string.Join(", ", genContext.Select(idx => tokenizer.Decode([idx])))}]");
 }
 else
     Array.Fill(genContext, Tokenizer.BosIdx);
-var generated = new List<string>();
 
+var generated = new List<string>();
 for (var i = 0; i < 20; i++)
 {
     var logits = model.Forward(genContext);
-    var probs = SoftmaxRow(logits.Data);
-    var next = Multinomial(probs);
+    Operand.SynchronizeDeviceArray(logits.Data);
+    var probs  = SoftmaxRow(logits.Data);
+    var next   = Multinomial(probs);
     if (next == Tokenizer.EosIdx) break;
     generated.Add(tokenizer.Decode([next]));
     var newContext = new int[ContextSize];
@@ -190,15 +247,16 @@ for (var i = 0; i < 20; i++)
 var prefix = promptOverride != null ? promptOverride + " " : "";
 Console.WriteLine(prefix + string.Join(" ", generated));
 
-// Untracked per-row softmax for inference (no autograd graph)
+// -------------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------------
 static float[] SoftmaxRow(float[] data)
 {
-    var n = data.Length;
+    var n   = data.Length;
     var max = float.NegativeInfinity;
-    for (var j = 0; j < n; j++)
-        if (data[j] > max) max = data[j];
+    for (var j = 0; j < n; j++) if (data[j] > max) max = data[j];
     var exps = new float[n];
-    var sum = 0.0f;
+    var sum  = 0.0f;
     for (var j = 0; j < n; j++) { exps[j] = MathF.Exp(data[j] - max); sum += exps[j]; }
     for (var j = 0; j < n; j++) exps[j] /= sum;
     return exps;
