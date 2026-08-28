@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Numerics.Tensors;
@@ -22,6 +23,7 @@ public class Operand
     public int Cols => _cols;
 
     private readonly (Operand Left, Operand Right) _previous;
+    private readonly Operand[]? _previousN;
     private Action _backward;
 
     private Operand(float[] data, int rows, int cols)
@@ -39,6 +41,12 @@ public class Operand
         : this(data, rows, cols)
     {
         _previous = previous;
+    }
+
+    private Operand(float[] data, int rows, int cols, Operand[] previousN)
+        : this(data, rows, cols)
+    {
+        _previousN = previousN;
     }
 
     public static Operand Of(float[,] src)
@@ -360,6 +368,10 @@ public class Operand
             if (TryPushUnvisited(stack, visited, current._previous.Left, ref pushed)) continue;
             if (TryPushUnvisited(stack, visited, current._previous.Right, ref pushed)) continue;
 
+            if (!pushed && current._previousN != null)
+                foreach (var p in current._previousN)
+                    if (TryPushUnvisited(stack, visited, p, ref pushed)) break;
+
             if (!pushed)
             {
                 stack.Pop();
@@ -368,6 +380,32 @@ public class Operand
             }
         }
         return ordered;
+    }
+
+    // Stack B [1, n] operands -> [B, n]
+    public static Operand Stack(Operand[] rows)
+    {
+        var b = rows.Length;
+        var n = rows[0].Cols;
+        var outFlat = new float[b * n];
+        for (var i = 0; i < b; i++)
+            Array.Copy(rows[i].Data, 0, outFlat, i * n, n);
+
+        var result = new Operand(outFlat, b, n, rows);
+        var rowGrads = Array.ConvertAll(rows, r => r.Gradient);
+        var dOut = result.Gradient;
+
+        result._backward = () =>
+        {
+            _backend.Synchronize(dOut);
+            for (var i = 0; i < b; i++)
+            {
+                for (var j = 0; j < n; j++)
+                    rowGrads[i][j] += dOut[i * n + j];
+                _backend.InvalidateDevice(rowGrads[i]);
+            }
+        };
+        return result;
     }
 
     private static bool TryPushUnvisited(Stack<Operand> stack, HashSet<Operand> visited,

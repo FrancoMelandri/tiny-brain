@@ -11,17 +11,18 @@ const int EmbedDim = 64;
 const int HiddenSize = 128;
 const float LearningRate = 0.02f;
 const int Epochs = 30;
-const int MaxVocabSize = 1000;
-const int MaxTrainStories = 5000;
+const int MaxVocabSize = 20000;
+const int MaxTrainStories = 10000;
 const int MaxValStories = 200;
 
 var ParamsFile    = Path.Combine(AppContext.BaseDirectory, "parameters.gguf");
 var TrainingsFile = Path.Combine(AppContext.BaseDirectory, "trainings.txt");
 
-// Parse --epoch N, --prompt <string>, and --backend cpu|gpu from CLI args
+// Parse --epoch N, --prompt <string>, --backend cpu|gpu, --batch-size N from CLI args
 int? epochOverride = null;
 string promptOverride = null;
 string backendOverride = null;
+int batchSize = 32;
 for (var i = 0; i < args.Length - 1; i++)
 {
     if (args[i] == "--epoch" && int.TryParse(args[i + 1], out var n))
@@ -30,6 +31,8 @@ for (var i = 0; i < args.Length - 1; i++)
         promptOverride = args[i + 1];
     if (args[i] == "--backend")
         backendOverride = args[i + 1].ToLowerInvariant();
+    if (args[i] == "--batch-size" && int.TryParse(args[i + 1], out var bs) && bs > 0)
+        batchSize = bs;
 }
 
 using IMatrixBackend computeBackend = backendOverride switch
@@ -99,21 +102,21 @@ if (shouldTrain)
     {
         var displayEpoch = epochStart + epoch;
         var sw = Stopwatch.StartNew();
-        Console.WriteLine($"Epoch {displayEpoch,3}");
+        Console.WriteLine($"Epoch {displayEpoch,3}  batch_size={batchSize}");
 
         var epochLoss = 0.0f;
         var total = trainData.Pairs.Length;
         var updateEvery = Math.Max(1, total / 10000);
-        var pairIdx = 0;
+        var samplesProcessed = 0;
 
-        foreach (var (ctx, target) in trainData.Pairs)
+        foreach (var (contexts, targets) in trainData.Batches(batchSize))
         {
             model.ZeroGradients();
 
-            var logits = model.Forward(ctx);
+            var logits = model.ForwardBatch(contexts);  // [B, vocabSize]
             var probs  = logits.Softmax();
-            var loss   = probs.NLL(target);
-            epochLoss += loss.Data[0];
+            var loss   = probs.NLL(targets);            // batch mean NLL
+            epochLoss += loss.Data[0] * contexts.Length;
 
             loss.Backpropagation();
 
@@ -122,13 +125,13 @@ if (shouldTrain)
             foreach (var m in model.ParameterMatrices)
                 m.ApplyGradients(LearningRate, clip);
 
-            pairIdx++;
-            if (pairIdx % updateEvery == 0 || pairIdx == total || pairIdx == 1)
+            samplesProcessed += contexts.Length;
+            if (samplesProcessed % updateEvery < batchSize || samplesProcessed >= total)
             {
-                var pct = (double)pairIdx / total;
+                var pct = (double)samplesProcessed / total;
                 var filled = (int)(pct * 40);
                 var bar = new string('█', filled) + new string('░', 40 - filled);
-                Console.Write($"\r  [{bar}] {pct:P0} ({pairIdx}/{total})");
+                Console.Write($"\r  [{bar}] {pct:P0} ({samplesProcessed}/{total})");
             }
         }
         Console.WriteLine();
@@ -139,7 +142,7 @@ if (shouldTrain)
         var perplexity = MathF.Exp(valLoss);
         sw.Stop();
 
-        finalTrainLoss = epochLoss / trainData.Pairs.Length;
+        finalTrainLoss = epochLoss / samplesProcessed;
         finalPerplexity = perplexity;
         totalElapsed += sw.Elapsed;
 

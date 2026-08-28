@@ -29,6 +29,20 @@ public class SlmModel
         return _brain.Forward(last);                        // [1, vocabSize]
     }
 
+    // Mini-batch forward: run embed+attention per sample, stack last rows, single Brain pass
+    public Operand ForwardBatch(int[][] contexts)
+    {
+        var attOuts = new Operand[contexts.Length];
+        for (var i = 0; i < contexts.Length; i++)
+        {
+            var x        = _embedding.LookupSequence(contexts[i]); // [T, embedDim]
+            var attended = _attention.Forward(x);                   // [T, embedDim]
+            attOuts[i]   = attended.SliceRow(_contextSize - 1);    // [1, embedDim]
+        }
+        var stacked = Operand.Stack(attOuts);  // [B, embedDim]
+        return _brain.Forward(stacked);        // [B, vocabSize]
+    }
+
     public void ZeroGradients()
     {
         _embedding.ZeroGradients();
