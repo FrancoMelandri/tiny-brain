@@ -11,7 +11,7 @@ const int EmbedDim        = 64;
 const int HiddenSize      = 128;
 const float LearningRate  = 0.02f;
 const int Epochs          = 30;
-const int MaxVocabSize    = 20000;
+const int MaxVocabSize    = 32000;
 const int MaxTrainStories = 1000;
 const int MaxValStories   = 200;
 
@@ -56,8 +56,8 @@ if (File.Exists(TrainingsFile))
     }
 
 var datasetsDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../datasets"));
-var trainCsv = Path.Combine(datasetsDir, "train.csv");
-var valCsv   = Path.Combine(datasetsDir, "validation.csv");
+var trainCsv = Path.Combine(datasetsDir, "train_wikitext.csv");
+var valCsv   = Path.Combine(datasetsDir, "validation_wikitext.csv");
 
 // -------------------------------------------------------------------------
 // Tokenizer, model and story cursor — first-launch vs resume

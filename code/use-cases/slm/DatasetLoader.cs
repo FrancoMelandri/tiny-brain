@@ -19,7 +19,7 @@ public static class DatasetLoader
         while (count < maxStories && !reader.EndOfStream)
         {
             var story = ReadQuotedField(reader);
-            if (story.Length == 0) break;
+            if (story.Length == 0) continue;
             sb.Append(story).Append(' ');
             count++;
         }
@@ -34,7 +34,7 @@ public static class DatasetLoader
         while (!reader.EndOfStream)
         {
             var story = ReadQuotedField(reader);
-            if (story.Length == 0) break;
+            if (story.Length == 0) continue;
             count++;
         }
         return count;
