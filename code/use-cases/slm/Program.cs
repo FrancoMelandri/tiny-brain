@@ -11,7 +11,7 @@ const int EmbedDim        = 64;
 const int HiddenSize      = 128;
 const float LearningRate  = 0.02f;
 const int Epochs          = 30;
-const int MaxVocabSize    = 32000;
+const int MaxVocabSize    = 50000;
 const int MaxTrainStories = 1000;
 const int MaxValStories   = 200;
 
