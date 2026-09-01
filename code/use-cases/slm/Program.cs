@@ -6,7 +6,7 @@ using System.Linq;
 using slm;
 using TinyBrain;
 
-const int ContextSize     = 50;
+const int ContextSize     = 256;
 const int EmbedDim        = 64;
 const int HiddenSize      = 128;
 const float LearningRate  = 0.02f;
